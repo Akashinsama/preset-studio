@@ -23,7 +23,8 @@
 ## 自检怎么跑
 
 ```bash
-node tools/test-regex.mjs         # 30 项   思维链折叠链逻辑（不需要夹具，克隆下来就能跑）
+node tools/build-panel.mjs        # 真跑（只用 panel/src + spec/groups.json 重建面板脚本）
+node tools/test-regex.mjs         # 30 项   思维链折叠链逻辑
 node tools/selftest.mjs           # 72 项   包内自检：库 + 面板 + 成品预设
 node tools/test-gui.mjs           # 331 项  解析 / 拼装内核（含真实预设的规模验证）
 node tools/test-panel.mjs         # 120 项  面板逻辑（假 DOM）
@@ -32,8 +33,14 @@ node tools/check-preset.mjs       # 108 项  成品预设独立校验（逐条�
 node tools/check-gui-browser.mjs  # 十屏 DOM 取证（要本机 Chrome/Edge）
 ```
 
-缺夹具的会打印 `SKIP` 并退出 0；设 `DSH_REQUIRE_FIXTURES=1` 就变成失败（CI 用）。
-自检用的脚本与产物链路在 `tools/` 下，构建顺序见文末"命令"一节。
+> **克隆下来直接跑会看到一片 `SKIP`，这是预期行为**：上面这些（除 `build-panel`）
+> 都要一份真实预设当样本，而本仓库不随附预设正文（见 [`NOTICE.md`](NOTICE.md)）。
+> 它们会打印缺哪个文件、往哪放，然后**退出 0**——不会红一片，也不会假装通过。
+> 想真跑：按 [`samples/README.md`](samples/README.md) 放好夹具即可；
+> 设 `DSH_REQUIRE_FIXTURES=1` 则把"缺失"当失败（CI 用）。
+>
+> 页面本身不依赖夹具：双击 `tools/gui/index.html` → 导入你自己的预设，全功能可用。
+> 带 `?selftest=1` 时没有演示数据也会跑一组与预设无关的断言（8 项），并把跳过项写清楚。
 
 ## 许可
 

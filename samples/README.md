@@ -32,17 +32,25 @@ SKIP  界面回归（十屏 DOM 取证）
 
 默认退出码 **0**（新克隆不至于红一片）；设 `DSH_REQUIRE_FIXTURES=1` 就变成 **2**（CI 用）。
 
-## 不放夹具也能跑的
+## 新克隆下来能跑什么（实测，不是估计）
 
 ```bash
-node tools/test-regex.mjs      # 30 项  折叠链逻辑
-node tools/selftest.mjs        # 需要成品预设（见上表）
-node tools/build-package.mjs   # 需要成品预设与面板产物
+node tools/build-panel.mjs     # 真跑：只用 panel/src/ + spec/groups.json 重建面板脚本
 ```
 
-真正完全不依赖夹具的是 `tools/test-regex.mjs`，以及两套**纯函数库**的断言。
-页面本身（`tools/gui/index.html`）也不依赖夹具：直接双击打开、**导入你自己的预设**就能用，
-只是演示数据那块会提示缺失。
+其余入口分三类，**全都会明确打印 SKIP 并退出 0**——不假装通过（"没跑"和"跑过了"必须分得清）：
+
+| 入口 | 缺的是 |
+|---|---|
+| `build-groups` `build-regex` `build-preset` `build-gui-demo` | 三份源预设（见上表；`build-preview` 可以用成品预设替代） |
+| `test-regex`(30) `test-panel`(120) `test-panelconfig`(83) `test-mobile`(20) `test-iframe`(26) | `preset/fano-thinking-chain.json`、`panel/preview-host.js`——两者都由预设派生 |
+| `test-gui`(331) `check-preset`(108) `selftest`(72) | 样本预设 / 成品预设 |
+| `check-browser`(58) `check-gui-browser`(十屏 DOM) | 上面那些 + 演示数据（还要本机 Chrome/Edge） |
+| `build-package` | 缺产物时 **exit 2**，并列出还缺什么、按什么顺序生成 |
+
+**页面不依赖夹具**：双击 `tools/gui/index.html`，点「导入预设…」选自己的预设就能用全功能。
+带 `?selftest=1` 打开时，没有演示数据会跑一组"与预设无关"的断言（库加载、外壳渲染、
+⟳ 软刷新在空页面下不炸），并把跳过了什么写在结论里——**仍然是 0 失败，但不是"全套通过"**。
 
 ## 演示数据（GUI 页面的"载入演示数据"按钮）
 

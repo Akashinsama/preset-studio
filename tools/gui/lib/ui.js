@@ -2308,7 +2308,15 @@
 
   function loadDemo() {
     const demo = globalThis.__DEMO_PRESETS__ || [];
-    if (!demo.length) { banner('没有演示数据——请先跑 node tools/build-gui-demo.mjs。', 'err'); return; }
+    if (!demo.length) {
+      /* 这条不是"坏了"，而是**故意的**：公开仓库只发工具与文档，演示数据是从预设正文
+         生成的，所以不在仓库里（见 NOTICE.md / samples/README.md）。
+         直接导入自己的预设就能用，所以这里给一句能照做的话，而不是一个红叉。 */
+      banner('没有演示数据（工具照样能用）：本仓库不随附预设正文，演示数据也就没有生成。'
+        + '点右上角「导入预设…」选一份你自己的酒馆预设即可；'
+        + '想要演示数据，按 samples/README.md 放好夹具后跑 node tools/build-gui-demo.mjs。', 'ok');
+      return;
+    }
     state.presets = [];
     for (const d of demo) state.presets.push({ file: d.file, bytes: d.bytes, json: d.json, model: PP.parsePreset(d.json, d.file, d.bytes) });
     state.active = 0;
@@ -3195,7 +3203,19 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
     };
     try {
       const demo = globalThis.__DEMO_PRESETS__ || [];
-      ok('演示数据已载入', demo.length > 0, `${demo.length} 份`);
+      ok('演示数据已载入', demo.length > 0,
+        demo.length ? `${demo.length} 份` : '本仓库不随附预设正文（见 NOTICE.md），公开仓库里这一层是空的');
+      /* 没有演示数据 = 有人克隆了公开仓库（或演示数据还没生成）。
+         这时只跑与预设无关的那几条，其余明确 SKIP：
+         **不假装通过**（那样"没测"和"测过了"就分不清了），也不整篇报错（那看着像工具坏了）。 */
+      if (!demo.length) {
+        noFixtureSelfTest(ok);
+        out.push('');
+        out.push('SKIP  其余断言需要演示数据（tools/gui/demo/*.js）——本仓库不随附预设正文。');
+        out.push('      想跑全套：按 samples/README.md 放好夹具，再 node tools/build-gui-demo.mjs；');
+        out.push('      命令行那几套同理（node tools/test-gui.mjs 等会自己打印 SKIP）。');
+        return finishSelfTest(out, pass, fails);
+      }
       const m = PP.parsePreset(demo[0].json, demo[0].file, demo[0].bytes);
       ok('解析出条目', m.counts.prompts > 100, String(m.counts.prompts));
       ok('解析出槽位占用', m.slots.length > 0, String(m.slots.length));
@@ -4182,12 +4202,38 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
       fails.push('抛出异常：' + e.message);
       out.push('  FAIL  抛出异常：' + (e && e.stack || e));
     }
+    finishSelfTest(out, pass, fails);
+  }
+
+  /** 收尾：写 #verdict 与页面标题。抽出来是为了"没有演示数据"那条早退路径也用同一套收尾 */
+  function finishSelfTest(out, pass, fails) {
     out.push('', `通过 ${pass} 项，失败 ${fails.length} 项`);
     if (fails.length) out.push('失败项：' + fails.join(' ／ '));
     const v = document.getElementById('verdict');
     v.hidden = false;
     v.textContent = out.join('\n');
     document.title = fails.length ? 'GUI-SELFTEST-FAIL' : 'GUI-SELFTEST-OK';
+  }
+
+  /**
+   * 没有演示数据时能跑的那几条：只断言与"有没有预设"无关的事——
+   * 库加载、外壳渲染、以及 ⟳ 软刷新在空页面下也不炸。
+   * 这几条正是公开仓库（克隆下来没有预设）唯一能自证的东西，别写成空的。
+   */
+  function noFixtureSelfTest(ok) {
+    ok('8 个库都加载了', !!(PP && PA && PI && PE && PS && PC && GI && BO));
+    ok('左侧导航已渲染（空状态也画得出来）', document.getElementById('nav').childElementCount > 0);
+    ok('主视图已渲染（显示"还没有载入预设"那张卡）', document.getElementById('view').childElementCount > 0);
+    ok('空状态确实在说"还没有载入预设"，不是白屏',
+      document.getElementById('view').textContent.includes('还没有载入预设'));
+    const btnR = document.getElementById('btn-refresh');
+    ok('顶栏有 ⟳ 刷新 按钮', !!(btnR && btnR.closest('.top-actions')));
+
+    let threw = null;
+    try { runSoftRefresh(); } catch (e) { threw = e && e.message; }
+    ok('没有预设时 ⟳ 软刷新也不会炸', threw === null, String(threw));
+    ok('刷新之后视图还在（不是把页面刷没了）', document.getElementById('view').childElementCount > 0);
+    ok('刷新顺带清掉横幅（刷新后不残留旧消息）', document.getElementById('banner').hidden);
   }
 
   /* ── 事件接线 ─────────────────────────────────────────────────── */
