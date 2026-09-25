@@ -334,7 +334,7 @@ const panelCode = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
    名字与开关从面板自己那份 CONFIG.button 读——两处各写一份的话，改了名字就会变成
    "渲染的是静态名、面板去接另一个名"的摆设按钮。读不出来就退回默认的两个名字。 */
 function readButtonDecl(code) {
-  const fallback = { enabled: true, buttons: [{ name: '⚙ 芳乃', visible: true }, { name: '🛡 防截断', visible: true }] };
+  const fallback = { enabled: true, buttons: [{ name: '🙈 隐藏', visible: true }, { name: '🛡 防截断', visible: true }] };
   try {
     new Function('globalThis', fs.readFileSync(P('tools', 'gui', 'lib', 'panelconfig.js'), 'utf8'))(globalThis);
     const b = globalThis.PresetPanelConfig.extractConfig(code)?.button;
@@ -374,7 +374,7 @@ out.extensions = {
       info: '芳乃配色悬浮窗：按子集开关预设条目、破甲按模型分流、自定义项可直接填写。',
       /* 顶部脚本按钮必须是**静态声明** + enabled:true，酒馆助手才会渲染按钮区——
          这是 v2.8.1 那边踩过的坑（光调运行时 API 没用）。名单与开关读自面板
-         CONFIG.button：⚙ 芳乃 = 开合面板；🛡 防截断 = 切换脚本层防截断的开关。 */
+         CONFIG.button：🙈 隐藏 = 把悬浮球和面板一起藏起来 / 再点回来；🛡 防截断 = 切换脚本层防截断的开关。 */
       button: btnDecl.decl,
       data: {},
       export_with: { data: false, button: true },

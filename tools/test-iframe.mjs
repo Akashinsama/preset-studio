@@ -259,7 +259,8 @@ console.log('\n[4] 版本号与自救入口');
   loadIn(inner.win, PANEL_SRC);
   await settle(8);
   const api = inner.win.__FANO_PANEL__;
-  ok('版本号已更新到 0.5.x', /^0\.5\./.test(api.version), api.version);
+  ok('版本号已更新到 0.6.x（顶部按钮改隐藏 / 壁纸开关 / 小方案长按改名）',
+    /^0\.6\./.test(api.version), api.version);
   ok('暴露了能力清单（长按改正文；编辑器导出前检查认它）',
     typeof api.caps === 'function' && api.caps().longPressEdit === true, JSON.stringify(api.caps && api.caps()));
   ok('暴露了外观配置（给生成器的「面板外观」对照用）',

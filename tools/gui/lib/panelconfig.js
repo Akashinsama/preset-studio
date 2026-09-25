@@ -42,6 +42,9 @@
     { key: '--fp-danger', label: '危险（出错时的提示框）', type: 'color' },
     { key: '--fp-warn', label: '警示', type: 'color' },
     { key: '--fp-shadow', label: '阴影（带透明度）', type: 'alpha' },
+    /* 关掉壁纸后的**纯色底**（底色层用它替掉半透明的 --fp-overlay）。
+       它跟其它 token 一样分昼夜两套，所以外观页上自动就有两个取色器。 */
+    { key: '--fp-solid', label: '纯色底（关掉壁纸时）', type: 'color' },
   ];
   const TOKEN_KEYS = TOKEN_SPEC.map((t) => t.key);
 
@@ -61,11 +64,11 @@
     ball: { size: 46, glyph: '芳', shape: 'circle', content: { kind: 'text', image: '' } },
     window: { w: 380, h: 620, minW: 260, minH: 200, maxW: 0, maxH: 0 },
     layout: { radius: 14, scale: 1, fontScale: 1, opacity: 1, blur: 14 },
-    wallpaper: { url: '', fit: 'cover', opacity: 0.35, blur: 0, dim: 0.15, dimColor: '#000000' },
+    wallpaper: { url: '', fit: 'cover', opacity: 0.35, blur: 0, dim: 0.15, dimColor: '#000000', enabled: true },
     /* 脚本层防截断的出厂开关（真正的状态在 localStorage 的 fano-antitrunc-v1）。 */
     antitrunc: { enabled: true },
     /* 顶部脚本按钮：名字要与预设里静态声明的两个一致（tools/build-preset.mjs 读这里）。 */
-    button: { enabled: true, panel: '⚙ 芳乃', antitrunc: '🛡 防截断' },
+    button: { enabled: true, panel: '🙈 隐藏', antitrunc: '🛡 防截断' },
     /* 长按条目改正文：按住多少毫秒算长按（enabled=false 就关掉这个手势）。 */
     edit: { longPress: { enabled: true, ms: 500 } },
   };
@@ -221,6 +224,145 @@
     };
   }
 
+  /* ── 装进**别人**的预设：把面板随身带的"芳乃"落成中性 ──────────────
+     `panel/fano-panel.js` 是**芳乃那份预设**的面板：它的日志前缀、文件头注释里写着芳乃，
+     自带的模块表更是**芳乃那 233 条的条目清单**（200 个条目名）。
+     生成器把这份面板装进别人的预设时，这些东西会跟着进人家的文件——
+     对方既没在用芳乃预设，也没理由在自己预设里看到它。
+
+     修法与标题完全一样（见 `spec/生成器设计.md`「面板标题」那节）：
+     **在写进预设的那一刻落成中性的字**。面板源码本体不动——那是芳乃自己那份，就该写着芳乃。
+
+     两类东西要分清：
+       1. **芳乃预设的数据**（模块表 / 分节）——不只是好看问题：面板默认要用它，
+          装到别人家会列出一堆那份预设里根本没有的条目，开关点不动。
+       2. **芳乃的字样**（日志前缀 / 注释 / 兜底标题 / 按钮名）——纯文字，换掉即可。
+     而 `FANO_PANEL_*`、`fano-antitrunc-v1` 这类**英文标识保留**：它们回答的是
+     "这是哪一支面板"，不是"你这份预设是芳乃预设"。
+
+     `findBrand()` 是绊线：换完还要能问"还剩几处"。剩了 `foreignPanelSource` 直接抛错，
+     免得以后谁在面板源码里新写一句芳乃，又悄悄漏进别人的预设。 */
+
+  /** 逐条替换表。**顺序即优先级**，短串在后——先换长串，`芳乃面板` 才能兜住
+      `[芳乃面板]`、`收起/打开芳乃面板`、`芳乃面板启动失败`、`芳乃面板：` 这几种落法。
+
+      末尾两条来自**防截断模块**（`panel/src/antitrunc.js`，由 build-panel.mjs 整段注入，
+      所以 grep panel-core.js 是找不到的——当年第一次做这件事就漏了它俩，绊线当场抓住）。
+      第 11 行是**署名**：原作是 Kemini Dramatron v3.1，这行把出处记在那儿。
+      所以这里只去掉"芳乃预设"这个名字，**署名本身留着**——那是别人的劳动，不该因为我们
+      改个名就连带抹掉。 */
+  const BRAND_PATTERNS = [
+    ['🌸 芳乃 · 预设面板', '预设面板'],
+    ['芳乃 · 预设面板', '预设面板'],
+    /* 注意：`⚙ 芳乃` 那条**不需要**了——0.6.0 起那个按钮的文案改成「🙈 隐藏」，
+       面板源码里不再出现带芳乃的按钮名（旧面板里那个字样只在**更新**路径上遇到，
+       而 foreignPanelSource 只用于"首次装进别人的预设"，拿到的一定是当前面板源码）。 */
+    ['芳乃 · 防截断运输（脚本层）', '防截断运输（脚本层）'],
+    ['出处：从「芳乃预设 v2.8.1」那条 13.8 万字脚本里', '出处：从一支上游脚本里'],
+    /* 面板**自带的那份分组数据**里也有芳乃字样（`spec/groups.json` → 构建期注入 GROUPS_DEFAULT）。
+       它会经"把面板自带的分组复制成草稿"这条路人手再进预设，所以这几条必须一起换。
+       注意这不只是字面问题：那三个成员名就是**芳乃预设的条目名**，别人预设里没有它们。 */
+    ['🌸芳乃 · 助手主体', '本预设助手主体'],
+    ['🌸芳乃 · 称呼', '本预设称呼'],
+    ['🌸芳乃 · 祈福口癖', '本预设口癖'],
+    ['改这里决定芳乃怎么称呼你', '改这里决定助手怎么称呼你'],
+    ['芳乃主体层（本预设新增）', '本预设主体层'],
+    ['只由本预设新增的三条。来源预设的提示词一字未改；芳乃靠这三条实现。默认关闭。',
+      '本预设自己新增的那几条。来源提示词一字未改。默认关闭。'],
+    ['芳乃面板', '预设面板'],
+    ['（默认，芳乃这套预设用的）', '（默认，本预设自带的）'],
+    ['默认是芳乃这套预设的排法', '默认是按本预设排的'],
+    ['其余用内置芳乃配色', '内置配色'],
+    ['芳乃 / 千恋万花 配色 token', '内置配色 token'],
+  ];
+
+  function neutralizeBrand(src) {
+    let out = String(src ?? '');
+    for (const [from, to] of BRAND_PATTERNS) out = out.split(from).join(to);
+    return out;
+  }
+
+  /** 源码里还剩哪些「芳乃」字样 → `[{ text, index }]`（换完必须为空） */
+  function findBrand(src) {
+    const s = String(src ?? '');
+    const out = [];
+    const re = /芳乃/g;
+    let m;
+    while ((m = re.exec(s))) {
+      out.push({ text: s.slice(Math.max(0, m.index - 26), m.index + 14).replace(/\s+/g, ' '), index: m.index });
+    }
+    return out;
+  }
+
+  /**
+   * 把**分组数据**里每一处字符串都过一遍品牌替换。
+   *
+   * 为什么需要：面板自带的那份分组（`spec/groups.json`）里就有芳乃字样
+   * （`🌸芳乃 · 称呼` 这类成员/可填名、`芳乃主体层（本预设新增）` 这类模块名与说明）。
+   * 而"把面板自带的分组复制成一份可编辑草稿"是常用起点——草稿带着这些字样，
+   * 一路写进别人的预设。**只换源码里的字是不够的，数据里的字也要换。**
+   *
+   * 只用在**草稿**上（它可能是从面板自带那份复制来的）；从目标预设**推断**出来的分组
+   * 是那份预设自己的条目名，一个字都不要动。
+   */
+  function neutralizeData(value) {
+    if (typeof value === 'string') return neutralizeBrand(value);
+    if (Array.isArray(value)) return value.map(neutralizeData);
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[neutralizeBrand(k)] = neutralizeData(v);
+      return out;
+    }
+    return value;
+  }
+
+  /**
+   * 把面板源码整理成"装进**别人**的预设"的形态。
+   *
+   * @param {string} src 面板源码（一般来自 `panel/fano-panel.js`）
+   * @param {object} [opts]
+   *   · `buttonLabel`  顶部脚本按钮的名字（装到谁家就写谁的名字）
+   *   · `groups` / `sections` / `thinkingTags` / `display` = **目标预设自己的**分组
+   *   · `title`        这行字（一般调用方已用 `panelTitle()` 落过名，可不传）
+   *   · `alsoOverride` 同一份分组是否**再写一份** GROUPS_OVERRIDE（"装进这份预设"要写它，
+   *     "还没应用"的判据读的也是它）。写的是同一份数据，所以字样不会从这一步漏出去。
+   * @returns {string} 新源码（入参字符串一个字符都不动）
+   * @throws 去品牌化后还剩「芳乃」字样时抛错 —— 那说明面板源码里新加了字样，替换表要补
+   */
+  function foreignPanelSource(src, opts = {}) {
+    let out = String(src ?? '');
+    const cfg = extractConfig(out);
+    if (cfg) {
+      const patch = { ...cfg };
+      if (opts.title !== undefined) patch.title = opts.title;
+      if (opts.buttonLabel !== undefined) patch.button = { ...cfg.button, panel: opts.buttonLabel };
+      out = patchConfig(out, patch);
+    }
+    if (Array.isArray(opts.groups)) out = patchBlock(out, 'GROUPS_DEFAULT', opts.groups);
+    if (Array.isArray(opts.sections)) out = patchBlock(out, 'SECTIONS_DEFAULT', opts.sections);
+    if (Array.isArray(opts.thinkingTags)) out = patchBlock(out, 'THINKING_TAGS_DEFAULT', opts.thinkingTags);
+    if (opts.display && typeof opts.display === 'object' && !Array.isArray(opts.display)) {
+      out = patchBlock(out, 'DISPLAY_DEFAULT', opts.display);
+    }
+    /* 覆盖块也写同一份数据。顺序要紧：这一步必须在下面的断言**之前**，
+       否则漏出去的正是"草稿带进来的字样"（真踩过：浏览器自检抓到的就是它）。 */
+    if (opts.alsoOverride && Array.isArray(opts.groups)) {
+      out = patchBlock(out, 'GROUPS_OVERRIDE', {
+        groups: opts.groups,
+        sections: Array.isArray(opts.sections) ? opts.sections : [],
+        thinkingTags: Array.isArray(opts.thinkingTags) ? opts.thinkingTags : [],
+        display: opts.display && typeof opts.display === 'object' ? opts.display : {},
+      });
+    }
+    out = neutralizeBrand(out);
+    const left = findBrand(out);
+    if (left.length) {
+      throw new Error(`去品牌化后还剩 ${left.length} 处「芳乃」字样，面板源码里多半新加了字样`
+        + `（要往 BRAND_PATTERNS 里补一条）：` + left.slice(0, 3).map((x) => '…' + x.text + '…').join(' ｜ '));
+    }
+    return out;
+  }
+
   /** 合并（深一层就够：tokens.day / ball / window / layout / wallpaper） */
   function mergeConfig(base, patch) {
     const out = {};
@@ -280,6 +422,9 @@
         blur: num(c.wallpaper.blur, 0, 0, 40),
         dim: num(c.wallpaper.dim, 0.15, 0, 0.95),
         dimColor: String(c.wallpaper.dimColor ?? '#000000'),
+        /* 与面板 CFG.wallpaper 的同名字段**同序同位**（那个测试会逐字段比）。
+           规则同样是"只认显式 false"：没写 / 写错 / null 都当**开着**。 */
+        enabled: c.wallpaper?.enabled !== false,
       },
       /* 下面两段必须与面板 CFG 的写法**一模一样**（含字段顺序）：
          test-panelconfig.mjs 会把两边的生效值 JSON 逐字段比。
@@ -291,7 +436,7 @@
       },
       button: {
         enabled: c.button?.enabled !== false,
-        panel: String(c.button?.panel ?? '⚙ 芳乃').trim() || '⚙ 芳乃',
+        panel: String(c.button?.panel ?? '🙈 隐藏').trim() || '🙈 隐藏',
         antitrunc: String(c.button?.antitrunc ?? '🛡 防截断').trim() || '🛡 防截断',
       },
       /* 长按改正文的手势。同样：只认显式 false。毫秒夹在 250–1500，
@@ -319,6 +464,9 @@
       '--fp-wall-blur': `${clamped.wallpaper.blur}px`,
       '--fp-wall-dim': String(has ? clamped.wallpaper.dim : 0),
       '--fp-wall-dim-color': clamped.wallpaper.dimColor,
+      /* 预设默认就关着壁纸时，底色层直接用纯色 token（预览画布跑的是真面板，
+         它自己会算这一段；这里是为了外观页右侧那个预览也跟着对）。 */
+      ...(has && clamped.wallpaper.enabled === false ? { '--fp-solid-bg': 'var(--fp-solid)' } : {}),
       '--fp-minw': `${clamped.window.minW}px`,
       '--fp-minh': `${clamped.window.minH}px`,
       '--fp-maxw': clamped.window.maxW ? `${clamped.window.maxW}px` : 'calc(100vw - 16px)',
@@ -436,6 +584,7 @@
     DEFAULT_THEME_KEYS: TOKEN_KEYS,
     extractConfig, extractThemes, extractCss, extractFallbackTitle, patchConfig, mergeConfig, clampConfig,
     extractBlock, patchBlock, extractGroups, patchGroups, extractDefaults,
+    BRAND_PATTERNS, neutralizeBrand, findBrand, neutralizeData, foreignPanelSource,
     toCssVars, scaleCss, scaleFontCss, hasWallpaper, validateConfig, changedTokens, estimateDataUrlBytes,
     findLiteral, parseLiteral,
   };

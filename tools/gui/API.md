@@ -11,11 +11,11 @@
 | `tools/gui/lib/invariants.js` | `globalThis.PresetInvariants` | M2 体检：对照通用不变式输出 必改 / 建议 / 提示 清单（含依据与修法） |
 | `tools/gui/lib/editor.js` | `globalThis.PresetEditor` | M3 框架编辑：编辑态、导出新预设、正则与脚本编辑、导出前检查、来源完整性自证 |
 | `tools/gui/lib/skeleton.js` | `globalThis.PresetSkeleton` | M4 从零搭骨架（只给结构 + 待填注释，正文一个字不代写） |
-| `tools/gui/lib/panelconfig.js` | `globalThis.PresetPanelConfig` | 面板脚本里 `CONFIG` / `GROUPS_OVERRIDE` 两个标记块的读写，以及夹取 / 校验 |
+| `tools/gui/lib/panelconfig.js` | `globalThis.PresetPanelConfig` | 面板脚本里 `CONFIG` / `GROUPS_OVERRIDE` 两个标记块的读写，夹取 / 校验，以及"装进**别人的**预设"时的去品牌化（`foreignPanelSource`） |
 | `tools/gui/lib/groupinfer.js` | `globalThis.PresetGroupInfer` | 按一份预设推断面板分组（选一 / 可多选 / 只读 / 可填 / 兜底） |
 | `tools/gui/lib/buildops.js` | `globalThis.PresetBuildOps` | 面板搭建操作层：分节 → 功能区 → 功能项 三层增删改、质检、导出形状 |
 
-导出总数 **131** 个（函数 104、常量/值 27）。`ui.js` 是 DOM/视图层，**不属于**本 API：它需要浏览器 `document`，只是渲染这些模块算出来的东西（`ui.js` 开头一次性取走上述 8 个全局名）。
+导出总数 **141** 个（函数 111、常量/值 30）——**实测值**（改代码时顺手量一遍：`Object.keys(globalThis.PresetXxx)` 逐个分类计数；这一行历史上漂过，别照抄）。`ui.js` 是 DOM/视图层，**不属于**本 API：它需要浏览器 `document`，只是渲染这些模块算出来的东西（`ui.js` 开头一次性取走上述 8 个全局名）。
 
 ---
 
@@ -201,6 +201,7 @@ const PP = globalThis.PresetParse;
 | `MARKER_SLOTS` | **8** 个：`worldInfoBefore, worldInfoAfter, charDescription, charPersonality, personaDescription, scenario, dialogueExamples, chatHistory`（**不含** `main`/`nsfw`/`jailbreak`/`enhanceDefinitions`） |
 | `REGEX_FIELD_LABEL` | `{ scriptName: '名字', findRegex: 'find 表达式', replaceString: '替换为', disabled: '启停', placement: '作用面', markdownOnly: '仅改显示', promptOnly: '仅改发送' }`（也是 `setRegexField` 的合法字段集） |
 | `PANEL_MARKS` | `['FANO_PANEL_CONFIG_BEGIN', '__FANO_PANEL__']` |
+| `PANEL_CAP_MARKS` | 面板"会什么"的**能力标记**：`{ longPressEdit: 'FANO_PANEL_CAP_LONGPRESS_EDIT', controlsV06: 'FANO_PANEL_CAP_CONTROLS_V06' }`。`panelSupport()` 靠它们判断"预设里那份面板是不是旧版"：缺哪个说哪个，两块都缺就两条拦截（导出前拦住 + 一键换新 + 一条"就带旧的"活路） |
 | `PROSE_FIELDS` | `['identifier', 'content', 'role', 'system_prompt', 'injection_position', 'injection_depth', 'injection_order', 'marker', 'forbid_overrides']` |
 
 ### 2.5 `PresetSkeleton`（10 个：4 函数 + 6 值）
@@ -225,7 +226,7 @@ const PP = globalThis.PresetParse;
 
 条目生成顺序（`buildSkeleton` 实测）：`main` → 6 个 MARKER_HEAD → 勾选模块的条目（按 `MODULES` 顺序）→ 自定义空条目 → 2 个 MARKER_TAIL → `jailbreak` → `nsfw`。
 
-### 2.6 `PresetPanelConfig`（28 个：21 函数 + 7 值）
+### 2.6 `PresetPanelConfig`（33 个：25 函数 + 8 值）
 
 | 签名 | 说明 |
 | --- | --- |
@@ -241,6 +242,10 @@ const PP = globalThis.PresetParse;
 | `extractGroups(src)` | `extractBlock(src, 'GROUPS_OVERRIDE')` 的简写 |
 | `patchGroups(src, override)` | `patchBlock(src, 'GROUPS_OVERRIDE', override)` 的简写（`null` 表示回到面板自带分组） |
 | `extractDefaults(src)` | 面板自带的分组素材：`{ groups[], sections[], thinkingTags[], display }`（实测成品面板 `groups` 25 个） |
+| `neutralizeBrand(src)` | 把源码里"芳乃"字样换成中性说法（逐条替换表见 `BRAND_PATTERNS`）。面板源码本体不动——只在**装进别人的预设**时用 |
+| `findBrand(src)` | 源码里还剩哪些「芳乃」→ `[{ text, index }]`。**这是绊线**：换完必须为空，否则说明面板源码里新加了字样 |
+| `neutralizeData(value)` | 同上，但对**分组数据**逐层做（数组/对象/键名/字符串都过一遍）。**只用在草稿上**：草稿多半是从面板自带那份（芳乃的清单）复制来的；从目标预设**推断**出来的分组是那份预设自己的条目名，一个字都别动 |
+| `foreignPanelSource(src, opts)` | 把面板源码整理成"装进**别人**的预设"的形态：按钮名落成这家的、把自带模块表换成这家的、去品牌化，最后**断言产物里没有「芳乃」**（有就抛）。`opts.alsoOverride` 时同一份分组再写一份 `GROUPS_OVERRIDE` |
 | `toCssVars(clamped)` | 由 `clampConfig` 结果算出 12 个 CSS 变量（`--fp-radius/--fp-opacity/--fp-blur/--fp-ball/--fp-wall-opacity/--fp-wall-blur/--fp-wall-dim/--fp-wall-dim-color/--fp-minw/--fp-minh/--fp-maxw/--fp-maxh`） |
 | `scaleCss(css, k)` | 面板 `scaleCss()` 的镜像：≥3px 的字面量乘 `k`（`k` 与 1 相差 <0.001 时原样返回） |
 | `scaleFontCss(css, k)` | 只乘 `font-size:` 的 px |
@@ -254,11 +259,12 @@ const PP = globalThis.PresetParse;
 | 值 | 实际内容 |
 | --- | --- |
 | `BEGIN` / `END` | `'FANO_PANEL_CONFIG_BEGIN'` / `'FANO_PANEL_CONFIG_END'` |
-| `TOKEN_SPEC` | **20** 个 `{ key, label, type }`（`type ∈ {'color','alpha'}`）。源码注释写的是"18 个"，实际 `TOKEN_SPEC.length === 20`，与 `extractThemes(面板).day` 的 20 个键一一对应 |
-| `TOKEN_KEYS` | `TOKEN_SPEC.map(t => t.key)`（20 个） |
+| `TOKEN_SPEC` | **21** 个 `{ key, label, type }`（`type ∈ {'color','alpha'}`）。源码注释里那个"18 个"是过期注释；**以实测为准**：`TOKEN_SPEC.length === 21`，与 `extractThemes(面板).day` 的键一一对应（测试按这个断言） |0 个键一一对应 |
+| `TOKEN_KEYS` | `TOKEN_SPEC.map(t => t.key)`（21 个） |
 | `DEFAULT_THEME_KEYS` | 与 `TOKEN_KEYS` **同一个数组引用** |
 | `DEFAULT_CONFIG` | 见 3.5 |
 | `FIT` | `['cover', 'contain', 'repeat']` |
+| `BRAND_PATTERNS` | **16** 组 `[原样, 换成]`（顺序即优先级、长串在前）。里面两类要分清：**芳乃预设的数据**（模块名/成员名/说明——别人预设里根本没这些条目）与**芳乃的字样**（日志前缀/注释/兜底标题/按钮名）。`FANO_PANEL_*`、`fano-antitrunc-v1` 这类**英文标识不在表里**：那是"这是哪支面板"的技术标识，保留 |
 
 ### 2.7 `PresetGroupInfer`（4 个：3 函数 + 1 值）
 
@@ -384,14 +390,14 @@ const GROUPS_OVERRIDE = null;   // 或 { groups, sections, thinkingTags, display
 const CONFIG = {
   version: 1,
   title: '',                                  // 空 → 面板用兜底标题（见 5.6）
-  tokens: { day: {}, night: {} },             // 键为 20 个 --fp-* token
+  tokens: { day: {}, night: {} },             // 键为 21 个 --fp-* token
   ball: { size: 46, glyph: '芳' },
   window: { w: 380, h: 620, minW: 260, minH: 200, maxW: 0, maxH: 0 },
   layout: { radius: 14, scale: 1, fontScale: 1, opacity: 1, blur: 14 },
-  wallpaper: { url: '', fit: 'cover', opacity: 0.35, blur: 0, dim: 0.15, dimColor: '#000000' },
+  wallpaper: { url: '', fit: 'cover', opacity: 0.35, blur: 0, dim: 0.15, dimColor: '#000000', enabled: true },
 };
 /* ══ FANO_PANEL_CONFIG_END ════════════════════════════════════════════ */
-const THEMES = { day: { /* 20 个 --fp-* */ }, night: { /* 20 个 */ } };
+const THEMES = { day: { /* 21 个 --fp-* */ }, night: { /* 21 个 */ } };
 const GROUPS_DEFAULT = [ … ]; const DISPLAY_DEFAULT = { … };
 const THINKING_TAGS_DEFAULT = [ … ]; const SECTIONS_DEFAULT = [ … ];
 ```
@@ -798,7 +804,7 @@ verifySourceIntact(json, edit, model, fingerprintFn) // → { checked, changed, 
 9. **`stats()` 与 `auditPanel()` 的 `managed` 口径**：`mode === 'fixed'` 的成员不计入 `managed`；`mode === 'hidden'` 的功能区在 `stats()` 里整个跳过。
 10. **`buildSkeleton` 的 `customCount` 被钳到 0–20**：`Math.max(0, Math.min(20, Number(x) || 0))` —— 传字符串数字可以，传非数字落 0。
 11. **`skeleton.counts.pending` 只数"注释待填"**，空正文的注入位标记计在 `markers`（实测 20 条骨架：`pending 12 / markers 8`）。
-12. **`TOKEN_SPEC` 实际 20 条**（源码注释写"18 个颜色 token"，是过期注释；`extractThemes().day` 也是 20 个键，`test-panelconfig.mjs` 用它们一一对应来断言）。
+12. **`TOKEN_SPEC` 实际 21 条**（源码注释里那句"18 个颜色 token"是过期注释；`extractThemes().day` 也是 21 个键，`test-panelconfig.mjs` 用它们一一对应来断言）。0.6.0 起多了 `--fp-solid`（关掉壁纸后的纯色底，昼夜各一个）。
 13. **`checkScriptSyntax` 只编译不执行**（`new Function(text)`），所以它不会真的跑别人的面板；但被 CSP 拦的环境里会抛。
 14. **面板改动没写进脚本就导出**：`exportChecks` 的 `opts.panel = { groups, appearance, unapplied, ignored }` 由界面告诉你"这一轮搭过什么"；`groups > 0 || appearance === true` 且预设里没有面板脚本 → **blocking** `'面板没装进预设'`。这是补一个真实踩过的坑：搭完面板直接导出，文件里没有面板脚本却毫无提示。
 

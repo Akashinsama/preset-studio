@@ -201,12 +201,24 @@ console.log('[1] 配置块的抠取与回写');
   ok('出厂默认：防截断开、按钮声明开，名字就是那两个', (() => {
     const D = PC.DEFAULT_CONFIG;
     return D.antitrunc.enabled === true && D.button.enabled === true
-      && D.button.panel === '⚙ 芳乃' && D.button.antitrunc === '🛡 防截断';
+      && D.button.panel === '🙈 隐藏' && D.button.antitrunc === '🛡 防截断';
   })(), JSON.stringify({ a: PC.DEFAULT_CONFIG.antitrunc, b: PC.DEFAULT_CONFIG.button }));
+  /* 壁纸的"预设默认开关"（0.6.0）：同样是"只认显式 false"，
+     而且必须与面板 CFG.wallpaper 同序同位——那个逐字段比对测试会盯着。 */
+  ok('壁纸默认开着，且只认显式 false', (() => {
+    return PC.DEFAULT_CONFIG.wallpaper.enabled === true
+      && PC.clampConfig({}).wallpaper.enabled === true
+      && PC.clampConfig({ wallpaper: { enabled: '随便' } }).wallpaper.enabled === true
+      && PC.clampConfig({ wallpaper: { enabled: false } }).wallpaper.enabled === false;
+  })(), JSON.stringify(PC.clampConfig({}).wallpaper));
+  ok('纯色底是一个配色 token（外观页因此自动长出取色器，昼夜各一个）',
+    PC.TOKEN_SPEC.some((t) => t.key === '--fp-solid')
+    && '--fp-solid' in PC.extractThemes(PANEL_SRC).day && '--fp-solid' in PC.extractThemes(PANEL_SRC).night,
+    JSON.stringify(PC.TOKEN_SPEC.map((t) => t.key).slice(-2)));
   ok('面板源码里那两段的出厂值也一样（默认值只许有一份说法）', (() => {
     const c = PC.extractConfig(PANEL_SRC);
     return c.antitrunc.enabled === true && c.button.enabled === true
-      && c.button.panel === '⚙ 芳乃' && c.button.antitrunc === '🛡 防截断';
+      && c.button.panel === '🙈 隐藏' && c.button.antitrunc === '🛡 防截断';
   })(), JSON.stringify(PC.extractConfig(PANEL_SRC).button));
   ok('关掉这两项后「回写→再读」，值还在（外观页保存不丢字段）', (() => {
     const off = PC.mergeConfig(cfg, {
@@ -224,7 +236,7 @@ console.log('[1] 配置块的抠取与回写');
     ['antitrunc', 'button'].every((k) => k in PC.clampConfig({})), Object.keys(PC.clampConfig({})).join('、'));
   ok('脏值 / 空名字：按开启 + 退回默认按钮名', (() => {
     const c = PC.clampConfig({ antitrunc: { enabled: '随便' }, button: { panel: '   ', antitrunc: null } });
-    return c.antitrunc.enabled === true && c.button.panel === '⚙ 芳乃' && c.button.antitrunc === '🛡 防截断';
+    return c.antitrunc.enabled === true && c.button.panel === '🙈 隐藏' && c.button.antitrunc === '🛡 防截断';
   })(), JSON.stringify(PC.clampConfig({ antitrunc: { enabled: '随便' }, button: { panel: '   ' } }).button));
   ok('经 clamp 往返不丢字段（同一份配置夹两次结果逐字相同）', (() => {
     const once = PC.clampConfig(PC.mergeConfig(cfg, { antitrunc: { enabled: false } }));

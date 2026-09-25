@@ -1,5 +1,5 @@
 /**
- * 芳乃 · 预设面板　v0.1.0
+ * 芳乃 · 预设面板　v0.6.0
  * ---------------------------------------------------------------------------
  * 用途：酒馆助手（JS-Slash-Runner）脚本。一个悬浮窗，把当前酒馆预设里的条目
  *       按"子集"重新组织：单选子集渲染成下拉框（选一个自动关掉同组其他），
@@ -58,7 +58,7 @@
   const EDITABLE = ((GROUPS.find((g) => g.mode === 'editable') || {}).editable) || {};
 
   const ID = 'fano-preset-panel-v1';
-  const VERSION = '0.5.0';
+  const VERSION = '0.6.0';
   const LS = {
     open: ID + '_open_v1',
     night: ID + '_night_v1',
@@ -75,6 +75,9 @@
     collapsed: ID + '_collapsed_v1',
     expanded: ID + '_expanded_v1',
     bundle: ID + '_bundle_v1',
+    /* 壁纸的运行时偏好：{ on?: boolean, color?: string }。
+       跟夜间模式一样是"使用者偏好"——存本地，不进预设、不碰 CONFIG。 */
+    wall: ID + '_wall_v1',
   };
 
   /* ── 宿主文档：酒馆助手脚本跑在 iframe 里，窗口必须挂到最外层能拿到的页面上 ───
@@ -194,6 +197,10 @@
       blur: 0,
       dim: 0.15,         // 压暗层：壁纸太花时把文字压回可读
       dimColor: '#000000',
+      /* 这份预设**出厂时**壁纸开着还是关着。关掉时底色换成纯色
+         （颜色是主题 token `--fp-solid`，在设置里按昼夜各一个）。
+         用户在面板上点过 🖼 之后以他点的为准——真状态在 localStorage 的 LS.wall。 */
+      enabled: true,
     },
     /* 脚本层防截断（拦截 generate 请求，让正文走函数调用回传；实现见
        panel/src/antitrunc.js）。这里只是**这份预设出厂时的开关**：
@@ -205,7 +212,7 @@
        否则酒馆渲染的是静态名字、面板去接另一个名字，按钮就成了摆设——
        tools/build-preset.mjs 写 button.buttons 时读的正是这里，改完重新构建即可。
        enabled=false = 不声明也不接线（那份预设不带顶部按钮）。 */
-    button: { enabled: true, panel: '⚙ 芳乃', antitrunc: '🛡 防截断' },
+    button: { enabled: true, panel: '🙈 隐藏', antitrunc: '🛡 防截断' },
     /* 长按条目改正文：按住 longPress.ms 毫秒，就打开那一条的正文编辑器。
        enabled=false 就关掉这个手势（面板上不会提"长按"两个字）。
        改的是**预设里那一条的正文**，保存时和其它操作一样只写回一次。 */
@@ -227,6 +234,9 @@
       '--fp-gold': '#c8a24a', '--fp-indigo': '#3a4368',
       '--fp-ok': '#4f9e78', '--fp-danger': '#cf4a45', '--fp-warn': '#c98a1f',
       '--fp-shadow': 'rgba(120, 60, 90, 0.18)', '--fp-overlay': 'rgba(255, 247, 250, 0.82)',
+      /* 关掉壁纸时的**纯色底**（底色层用它替掉半透明的 --fp-overlay）。
+         放在主题里 = 昼夜各一个颜色，而且外观页会自动长出一个取色器。 */
+      '--fp-solid': '#fff7fa',
     },
     night: {
       '--fp-bg': '#17131c', '--fp-bg-raised': '#221b28', '--fp-bg-inset': '#100d14',
@@ -237,6 +247,7 @@
       '--fp-gold': '#e0c07a', '--fp-indigo': '#8f9bd0',
       '--fp-ok': '#6fbf8a', '--fp-danger': '#ef6f75', '--fp-warn': '#d8b25f',
       '--fp-shadow': 'rgba(0, 0, 0, 0.55)', '--fp-overlay': 'rgba(23, 19, 28, 0.86)',
+      '--fp-solid': '#17131c',
     },
   };
 
@@ -282,6 +293,9 @@
       blur: num(CONFIG?.wallpaper?.blur, 0, 0, 40),
       dim: num(CONFIG?.wallpaper?.dim, 0.15, 0, 0.95),
       dimColor: String(CONFIG?.wallpaper?.dimColor ?? '#000000'),
+      /* 字段顺序与 tools/gui/lib/panelconfig.js 的 clampConfig() 必须一致：
+         test-panelconfig.mjs 会把两边的生效值逐字段（含顺序）比对。 */
+      enabled: CONFIG?.wallpaper?.enabled !== false,
     },
     /* 只认显式 false：没写 / 写错 / null 都当**开启**（默认要有这一层防护）。
        字段顺序与 tools/gui/lib/panelconfig.js 的 clampConfig() 必须一致：
@@ -291,7 +305,7 @@
     },
     button: {
       enabled: CONFIG?.button?.enabled !== false,
-      panel: String(CONFIG?.button?.panel ?? '⚙ 芳乃').trim() || '⚙ 芳乃',
+      panel: String(CONFIG?.button?.panel ?? '🙈 隐藏').trim() || '🙈 隐藏',
       antitrunc: String(CONFIG?.button?.antitrunc ?? '🛡 防截断').trim() || '🛡 防截断',
     },
     edit: {
@@ -302,6 +316,42 @@
     },
   };
   const hasWallpaper = () => !!CFG.wallpaper.url;
+
+  /* ── 壁纸开关 + 纯色背景 ──────────────────────────────────────────
+     标题栏那两个小控件：🖼 开关壁纸、🎨 选纯色（只在配了壁纸时出现）。
+     **两层，各管各的**：
+       · 预设层（进文件、编辑器里可设）：`CONFIG.wallpaper.enabled` = "这份预设出厂时
+         壁纸开不开"；纯色是主题 token `--fp-solid`（昼夜各一个，外观页上就是取色器）。
+       · 使用者层（只在本机，不进预设）：`LS.wall = { on?, color? }`——他点过就以他点的为准。
+     底色层读 `var(--fp-solid-bg, var(--fp-overlay))`：**只在壁纸被关掉时才接管**，
+     否则会把"本来就没配壁纸"那种半透明观感也换成纯色，等于替所有人改了默认样子。 */
+  const wallState = () => (state.wall && typeof state.wall === 'object') ? state.wall : {};
+  /** 开没开：用户点过就以他点的为准；没点过看这份预设的出厂值 */
+  const wallOn = () => (typeof wallState().on === 'boolean') ? wallState().on : CFG.wallpaper.enabled;
+  const wallpaperShown = () => hasWallpaper() && wallOn();
+  /** 纯色底：用户选过就用他那个色；没选过指向主题 token（`var()` 会按当前昼夜解析） */
+  const solidColor = () => wallState().color || 'var(--fp-solid)';
+  const solidActive = () => hasWallpaper() && !wallOn();
+
+  /** 改壁纸开关 / 纯色并落盘。`repaint=false` 时只更新样式变量，不重画整棵树
+      （颜色选择器要用它：重画会把正在拖的那个控件换掉，手感直接断）。 */
+  function setWall(patch, repaint = true) {
+    state.wall = { ...wallState(), ...patch };
+    writeLS(LS.wall, state.wall);
+    if (repaint) render();
+    else { try { ensureStyle(); } catch { /* 忽略 */ } }
+  }
+
+  /** 整块隐藏 / 显示（连球一起）。顶部按钮、Ctrl+Shift+F、API 三处共用同一条路。 */
+  function toggleHidden() {
+    state.hidden = !state.hidden;
+    if (!state.hidden) state.open = true;
+    /* 落盘：**按钮就是回来的路**（键盘出口在手机上不存在），所以记住是安全的。
+       另外两条兜底见 hide() 的注释：Ctrl+Shift+F 与 __FANO_PANEL__.show()。 */
+    state.persistHidden = true;
+    writeLS(LS.hidden, state.hidden);
+    render();
+  }
 
   /** 整体缩放：把面板 CSS 里 ≥3px 的字面量乘一下。
       1px/2px 的描边保持原样，否则细线会被放大成粗边；vw/vh/% 一律不碰。 */
@@ -406,6 +456,8 @@
     index: new Map(),  // name -> prompt
     missing: new Map(),// groupId -> 缺失成员数
     night: readLS(LS.night, false),
+    /** 壁纸开关与纯色背景（标题栏那两个小控件改的就是它）：`{ on?, color? }` */
+    wall: readLS(LS.wall, null),
     collapsed: false,
     /* 整块隐藏：默认**只在本次会话有效**（刷新必然回来）。
        存档里有这个键 = 用户显式 persistHidden 过，那就照办。 */
@@ -715,6 +767,12 @@
       改这段代码时**别删这一行**（删了编辑器就认不出来了）。 */
   const CAP_LONGPRESS_EDIT = 'FANO_PANEL_CAP_LONGPRESS_EDIT';
 
+  /** 能力标记（0.6.0 起）：顶部按钮=整块隐藏 / 壁纸开关 + 纯色底 / 小方案长按改名。
+      编辑器（`tools/gui`）靠**文本里有没有这一行**判断"这份预设里的面板是不是旧版"——
+      老面板没有这些控件，装进酒馆就是"看着差不多、功能没有"，所以导出前要拦住并给一键换新。
+      它只需要被**声明**出来（与 CAP_LONGPRESS_EDIT 同一个机制）。 */
+  const CAP_CONTROLS_V06 = 'FANO_PANEL_CAP_CONTROLS_V06';
+
   /** 长按期间指针允许的抖动（px）。超过就当成滚动/拖动，取消。 */
   const HOLD_CANCEL_PX = 8;
   /** 长按已经触发过：紧跟的那一次 click 要吞掉（见 bindGestureOnce 里的捕获监听）。 */
@@ -758,10 +816,16 @@
 
   /**
    * 把长按手势挂到某一行上。行里点一下该干嘛还干嘛（开关/选中），
-   * 只有"按住不动"才是改正文——两件事不抢同一个手势。
+   * 只有"按住不动"才是长按动作——两件事不抢同一个手势。
+   *
+   * opts.onLongPress 不给就是默认动作（打开这一条的正文编辑器）；
+   * opts.force = true 时不受 `CONFIG.edit.longPress.enabled` 影响
+   * （那个开关管的是"长按条目改正文"，与小方案改名无关）。
    */
-  function bindLongPress(node, name) {
-    if (!CFG.edit.longPress.enabled || !name || !node || typeof node.addEventListener !== 'function') return;
+  function bindLongPress(node, name, opts = {}) {
+    const action = typeof opts.onLongPress === 'function' ? opts.onLongPress : () => openEntryEditor(name);
+    if (!opts.force && !CFG.edit.longPress.enabled) return;
+    if (!name || !node || typeof node.addEventListener !== 'function') return;
     let timer = null;
     let sx = 0;
     let sy = 0;
@@ -782,7 +846,7 @@
         swallowNextClick = true;        // 松手跟来的那次 click 由 onRowClick 吞掉
         try { node.classList.remove('fp-hold'); } catch { /* 忽略 */ }
         buzz();
-        openEntryEditor(name);
+        action();
       }, CFG.edit.longPress.ms);
     });
     node.addEventListener('pointermove', (e) => {
@@ -945,6 +1009,63 @@
     apply(changes, '已应用「' + plan.name + '」');
   }
 
+  /** 小方案的 chip 节点，按 id 记着（长按改名要**就地**把 chip 换成输入框）。
+      每次渲染重建，所以不会留悬空引用。 */
+  const planChips = new Map();
+
+  /**
+   * 长按小方案 → 就地改名。Enter 或点别处保存，Esc 放弃。
+   * 为什么不用 prompt()：面板跑在酒馆页面里（可能是嵌套 iframe），
+   * 原生弹窗在手机与沙箱里表现不一；就地输入框没有这个问题，也看得见自己在改哪一个。
+   */
+  function startRenamePlan(planId) {
+    const plan = plans().find((x) => x.id === planId);
+    const chip = planChips.get(planId);
+    if (!plan || !chip) return;
+    const input = el('input', 'fp-chip-input');
+    input.type = 'text';
+    input.value = plan.name;
+    input.maxLength = 24;
+    input.title = '回车保存 · Esc 放弃';
+    chip.textContent = '';
+    chip.appendChild(input);
+    try { input.focus(); input.select(); } catch { /* 假 DOM / 老浏览器没有 focus 也无所谓 */ }
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      const v = String(input.value || '').trim();
+      if (save && v && v !== plan.name) {
+        writeLS(LS.plans, plans().map((x) => (x.id === plan.id ? { ...x, name: v } : x)));
+        render();
+        toast('小方案已改名为「' + v + '」', 'ok');
+      } else {
+        render();
+      }
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+    /* 输入框自己的点击别冒到 chip 上——那会被当成"应用这个方案" */
+    input.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  /** 程序化改一个方案的名字（控制台与测试用；界面上就是长按）。 */
+  function renamePlan(id, name) {
+    const v = String(name || '').trim();
+    if (!v) return false;
+    let hit = false;
+    writeLS(LS.plans, plans().map((x) => {
+      if (x.id !== id) return x;
+      hit = true;
+      return { ...x, name: v };
+    }));
+    if (hit) render();
+    return hit;
+  }
+
   /* ── toast ──────────────────────────────────────────────────────── */
   let toastTimer = null;
   function toast(msg, kind) {
@@ -1089,7 +1210,7 @@
    0 底色层（原来的磨砂玻璃，带 CONFIG 的不透明度/模糊）
    1 壁纸层   2 压暗层   3 内容
    分成 4 层是为了让"半透明 + 壁纸 + 文字仍可读"这三件事互不打架。 */
-.fp-bglayer{position:absolute;inset:0;z-index:0;background:var(--fp-overlay);
+.fp-bglayer{position:absolute;inset:0;z-index:0;background:var(--fp-solid-bg,var(--fp-overlay));
   opacity:var(--fp-opacity,1);backdrop-filter:blur(var(--fp-blur,14px)) saturate(1.1);
   -webkit-backdrop-filter:blur(var(--fp-blur,14px)) saturate(1.1);}
 .fp-wall{position:absolute;inset:0;z-index:1;background-position:center;background-repeat:no-repeat;
@@ -1236,6 +1357,12 @@
 .fp-mini{font-size:11px;padding:3px 9px;border-radius:8px;border:1px solid var(--fp-border-strong);
   background:var(--fp-bg);color:var(--fp-text-dim);cursor:pointer}
 .fp-mini:hover{color:var(--fp-accent);border-color:var(--fp-accent)}
+/* 长按小方案→就地改名用的输入框：形状跟着 chip 走，一眼看出"在改这一个" */
+.fp-chip-input{font:inherit;font-size:11px;width:96px;padding:2px 8px;border-radius:99px;
+  border:1px solid var(--fp-accent);background:var(--fp-bg-inset);color:inherit;outline:none}
+/* 关掉壁纸后的纯色选择器：跟标题栏那几个图标同尺寸 */
+.fp-color{width:24px;height:24px;padding:0;border-radius:7px;border:1px solid var(--fp-border);
+  background:var(--fp-bg-raised);cursor:pointer;flex:0 0 auto}
 .fp-warnbox{margin:0 0 8px;padding:7px 9px;border-radius:8px;border:1px solid var(--fp-warn);
   background:var(--fp-accent-soft);color:var(--fp-warn);font-size:11.5px}
 /* 出错（读不到预设、注入失败）单独用危险色——和"缺少某些条目"这种提醒区分开 */
@@ -1259,10 +1386,13 @@
       `--fp-opacity:${CFG.layout.opacity}`,
       `--fp-blur:${CFG.layout.blur}px`,
       `--fp-ball:${CFG.ball.size}px`,
-      `--fp-wall-opacity:${hasWallpaper() ? CFG.wallpaper.opacity : 0}`,
+      `--fp-wall-opacity:${wallpaperShown() ? CFG.wallpaper.opacity : 0}`,
       `--fp-wall-blur:${CFG.wallpaper.blur}px`,
-      `--fp-wall-dim:${hasWallpaper() ? CFG.wallpaper.dim : 0}`,
+      `--fp-wall-dim:${wallpaperShown() ? CFG.wallpaper.dim : 0}`,
       `--fp-wall-dim-color:${CFG.wallpaper.dimColor}`,
+      /* 关掉壁纸 → 底色层换成纯色。用**新变量**而不是改 --fp-overlay：
+         主题是写在 .fp-root[data-theme] 上的，比 .fp-root 更具体，直接覆盖会被主题盖掉。 */
+      ...(solidActive() ? [`--fp-solid-bg:${solidColor()}`] : []),
       `--fp-minw:${CFG.window.minW}px`,
       `--fp-minh:${CFG.window.minH}px`,
       `--fp-maxw:${CFG.window.maxW ? CFG.window.maxW + 'px' : 'calc(100vw - 16px)'}`,
@@ -1348,7 +1478,7 @@
     /* 底色层 / 壁纸层 / 压暗层（顺序即层级，见样式注释）。
        壁纸为空时壁纸层 opacity 是 0，等于不存在。 */
     win.appendChild(el('div', 'fp-bglayer'));
-    if (hasWallpaper()) {
+    if (wallpaperShown()) {
       const wall = el('div', 'fp-wall');
       wall.id = ID + '-wall';
       wall.dataset.fit = CFG.wallpaper.fit;
@@ -1384,6 +1514,30 @@
     nightBtn.title = state.night ? '切到白天配色' : '切到夜间配色';
     nightBtn.addEventListener('click', () => { state.night = !state.night; writeLS(LS.night, state.night); render(); });
     head.appendChild(nightBtn);
+
+    /* 壁纸开关 + 纯色背景（**只在配了壁纸时给**：没配就没有可开关的东西）。
+       关掉壁纸 → 底色层换成他选的那个纯色（没选过就按昼夜给一个）。 */
+    if (hasWallpaper()) {
+      const showing = wallpaperShown();
+      const wallBtn = el('div', 'fp-icon', showing ? '🖼' : '🎨');
+      wallBtn.title = showing ? '关掉壁纸，改用纯色背景' : '开回壁纸';
+      wallBtn.addEventListener('click', () => {
+        const next = !wallOn();
+        setWall({ on: next });
+        toast(next ? '壁纸已打开' : '壁纸已关掉，底色改用纯色', 'info');
+      });
+      head.appendChild(wallBtn);
+      if (!showing) {
+        const pick = el('input', 'fp-color');
+        pick.type = 'color';
+        pick.value = solidColor();
+        pick.title = '选纯色背景（关掉壁纸时生效）';
+        /* 实时预览走 input 事件：只更新样式变量、**不重画**——
+           重画会把正在拖的那个控件换掉，手感直接断。 */
+        pick.addEventListener('input', () => setWall({ color: pick.value }, false));
+        head.appendChild(pick);
+      }
+    }
 
     const minBtn = el('div', 'fp-icon', state.collapsed ? '▢' : '—');
     minBtn.title = state.collapsed ? '展开' : '收起';
@@ -1425,18 +1579,27 @@
     /* 脚 */
     const foot = el('div', 'fp-foot');
     const chips = el('div', 'fp-chips');
+    chips.id = ID + '-chips';
     chips.appendChild(el('span', 'fp-note', '小方案：'));
     const ps = plans();
+    planChips.clear();                     // 每次渲染重建：别留悬空引用
     if (!ps.length) chips.appendChild(el('span', 'fp-note', '（还没存）'));
     for (const plan of ps) {
       const c = el('span', 'fp-chip', plan.name);
-      c.title = '点一下应用；右键删除';
-      c.addEventListener('click', () => applyPlan(plan));
+      c.dataset.plan = plan.id;
+      c.title = '点一下应用；长按改名；右键删除';
+      /* 点一下的守卫必须由**这个节点自己**拦（见 onRowClick 的注释）：
+         长按会触发一次重渲染，原来那个 chip 已从文档里摘下来了，浏览器仍可能把
+         随后的 click 派发到它身上——那时"改完名"会顺手把方案应用掉。 */
+      c.addEventListener('click', onRowClick(() => applyPlan(plan)));
       c.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         writeLS(LS.plans, plans().filter((x) => x.id !== plan.id));
         render(); toast('已删除「' + plan.name + '」', 'ok');
       });
+      /* force：长按改名不受"长按改正文"那个开关影响——那是给条目正文的 */
+      bindLongPress(c, plan.id, { force: true, onLongPress: () => startRenamePlan(plan.id) });
+      planChips.set(plan.id, c);
       chips.appendChild(c);
     }
     chips.appendChild(el('span', 'fp-chip', '＋存为小方案')).addEventListener('click', savePlan);
@@ -1790,10 +1953,7 @@
       if (!e.ctrlKey || !e.shiftKey) return;
       if (!(e.key === 'F' || e.key === 'f')) return;
       e.preventDefault();
-      state.hidden = !state.hidden;
-      if (!state.hidden) state.open = true;
-      if (state.persistHidden) writeLS(LS.hidden, state.hidden);
-      render();
+      toggleHidden();          // 与顶部按钮同一条路（含落盘）
     });
     HOST.win.addEventListener('pointermove', (e) => {
       if (!gesture.mode || !gesture.target) return;
@@ -1924,6 +2084,18 @@
       return state.persistHidden ? '隐藏状态会记住（刷新也保持）' : '隐藏状态只在本次会话有效';
     },
     isHidden: () => !!state.hidden,
+    /** 整块隐藏 / 显示（顶部按钮与 Ctrl+Shift+F 同一条路） */
+    toggleHidden: () => { toggleHidden(); return state.hidden ? '已隐藏' : '已显示'; },
+    /** 壁纸开关 / 纯色背景的当前状态（标题栏那两个小控件改的就是它） */
+    wallpaper: () => ({
+      configured: hasWallpaper(), on: wallOn(), shown: wallpaperShown(),
+      solidActive: solidActive(), solid: solidColor(), raw: wallState(),
+    }),
+    /** 程序化改壁纸开关或纯色：`setWallpaper({ on: false })` / `setWallpaper({ color: '#123456' })` */
+    setWallpaper: (patch) => { setWall({ ...(patch || {}) }); return 'ok'; },
+    /** 小方案（控制台与测试用；界面上：点一下应用、长按改名、右键删除） */
+    plans: () => plans().map((p) => ({ id: p.id, name: p.name, count: Object.keys(p.entries || {}).length })),
+    renamePlan,
     groups: GROUPS,
     thinkingTags: THINKING_TAGS,
     /** 手机上看不见面板时，让用户把这段结果发我，一眼就能定位是哪一种情况。 */
@@ -1982,7 +2154,7 @@
   /* ══ FANO_ANTITRUNC_END ═══════════════════════════════════════════════ */
 
   /* ── 顶部脚本按钮（酒馆助手）───────────────────────────────────────
-     两个按钮：⚙ 芳乃（开合面板）、🛡 防截断（切换脚本层防截断的开关）。
+     两个按钮：🙈 隐藏（把**悬浮球和面板一起**藏起来 / 再点回来）、🛡 防截断（切换脚本层防截断的开关）。
      要注意的三件事（前两条是 v2.8.1 那边踩过的坑）：
        · 按钮必须**静态声明**在预设脚本的 button.buttons 里、且 button.enabled = true，
          否则酒馆助手根本不渲染按钮区——光在运行时调 API 没用（build-preset 已照此写，
@@ -2019,9 +2191,13 @@
       if (declBtn) declBtn([{ name: CFG.button.panel, visible: true }, { name: CFG.button.antitrunc, visible: true }]);
       if (getEvt && onEvt) {
         onEvt(getEvt(CFG.button.panel), () => {
-          state.open = !state.open;
-          writeLS(LS.open, state.open);
-          render();
+          /* 这个按钮是**把悬浮球和面板一起藏起来 / 再叫回来**（用户点名要的功能），
+             不再是"开合窗口"。隐藏状态会落盘记住——按钮本身就是回来的路；
+             另外还有两条兜底：Ctrl+Shift+F、控制台 __FANO_PANEL__.show()。 */
+          toggleHidden();
+          notifyUser(state.hidden
+            ? '面板已隐藏——再点一次「' + CFG.button.panel + '」就能叫回来'
+            : '面板已显示', state.hidden ? 'info' : 'ok');
         });
         onEvt(getEvt(CFG.button.antitrunc), () => {
           /* 切开关 = 真的装/卸拦截器（见 panel/src/antitrunc.js 的 setEnabled）。 */

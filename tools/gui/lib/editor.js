@@ -388,7 +388,11 @@
   /* 面板"会什么"的能力标记：面板源码里写死的常量名（见 panel/src/panel-core.js）。
      靠它判断"这份预设里的面板脚本是不是新版"，比看版本号稳——
      版本号会被手改，能力标记是代码的一部分，缺了就是真缺。 */
-  const PANEL_CAP_MARKS = { longPressEdit: 'FANO_PANEL_CAP_LONGPRESS_EDIT' };
+  const PANEL_CAP_MARKS = {
+    longPressEdit: 'FANO_PANEL_CAP_LONGPRESS_EDIT',
+    /* 0.6.0 起：顶部按钮=整块隐藏 / 壁纸开关 + 纯色底 / 小方案长按改名 */
+    controlsV06: 'FANO_PANEL_CAP_CONTROLS_V06',
+  };
 
   /**
    * 这份面板脚本是不是我们这套、会哪些能力。
@@ -1072,19 +1076,36 @@
              人家预设里本来就有个脚本，很正常，也没义务换成我们的。 */
       const sup = panels.map((s) => ({ s, ...panelSupport(s.content) }));
       const ours = sup.filter((x) => x.ours);
-      const stale = ours.filter((x) => x.missing.includes('longPressEdit'));
-      if (stale.length && !pi?.staleIgnored) {
-        blocking.push({
+      /* 每个能力一条拦截，各有各的 kind（老面板缺哪个就说哪个）。
+         两条的"活路"共用同一个 staleIgnored——说一次"就带旧的"就够了，别问两遍。 */
+      const CAP_TEXT = {
+        longPressEdit: {
           kind: '面板是旧版：不能长按改正文',
-          text: `这份预设里的面板脚本「${stale.map((x) => x.s.name).join('、')}」是旧版——`
-            + '**长按条目改正文**这个能力它没有，导出去以后在酒馆里长按不会有反应。'
-            + '点「换成新版面板」一键换成新版（你在「面板外观 / 面板分组」里改过的设置会带过去）；'
-            + '要是就想带着这个旧面板导出，点「就带这个旧面板导出」。',
-        });
+          what: '**长按条目改正文**',
+        },
+        controlsV06: {
+          kind: '面板是旧版：没有隐藏按钮 / 壁纸开关 / 小方案改名',
+          what: '**顶部隐藏按钮、壁纸开关 + 纯色底、小方案长按改名**',
+        },
+      };
+      const stale = ours.filter((x) => x.missing.length > 0);
+      if (stale.length && !pi?.staleIgnored) {
+        for (const [cap, info] of Object.entries(CAP_TEXT)) {
+          const hit = stale.filter((x) => x.missing.includes(cap));
+          if (!hit.length) continue;
+          blocking.push({
+            kind: info.kind,
+            text: `这份预设里的面板脚本「${hit.map((x) => x.s.name).join('、')}」是旧版——`
+              + info.what + '这些能力它没有，导出去以后在酒馆里点了不会有反应。'
+              + '点「换成新版面板」一键换成新版（你在「面板外观 / 面板分组」里改过的设置会带过去）；'
+              + '要是就想带着这个旧面板导出，点「就带这个旧面板导出」。',
+          });
+        }
       } else if (stale.length) {
         warnings.push({
           kind: '带着旧版面板导出',
-          text: '你说了"就带这个旧面板导出"——那么长按条目改正文不会有。改动一下别的地方，它会再问你一次。',
+          text: '你说了"就带这个旧面板导出"——那么长按条目改正文、顶部隐藏按钮、壁纸开关、'
+            + '小方案改名这些都不会有。改动一下别的地方，它会再问你一次。',
         });
       } else if (panels.length && !ours.length) {
         warnings.push({

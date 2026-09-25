@@ -6,7 +6,7 @@
 思维链标签互斥：默认只开「📽️ICOT（三段）」（共 2 套标签 / 17 条候选）
 默认关闭的整组 summary（共 4 条）：配套正则没搬齐，开着会把事件文本漏进聊天
 内置槽位主人：main→💠CLEAR　jailbreak→💠continue　nsfw→信息结束　chatHistory→Chat History　dialogueExamples→Chat Examples　charDescription→💠Char Description　charPersonality→💠Char Personality　worldInfoBefore→💠↑Char　worldInfoAfter→💠↓Char　personaDescription→💠Persona Description　scenario→💠Scenario　enhanceDefinitions→🤔同人增强-二选一
-顶部按钮静态声明：⚙ 芳乃 / 🛡 防截断　· 顶部按钮名读自面板 CONFIG：⚙ 芳乃 / 🛡 防截断
+顶部按钮静态声明：🙈 隐藏 / 🛡 防截断　· 顶部按钮名读自面板 CONFIG：🙈 隐藏 / 🛡 防截断
 降级为普通条目 2 条：
    · 💾主提示（Izumi）从槽位 main 降级为普通条目 b818823e…
    · 短对话模式（Izumi）从槽位 jailbreak 降级为普通条目 c0c0d3d3…
@@ -29,7 +29,7 @@
    · 💠</HISTORY>：声明 Izumi → 实际取自 Kemini
 
 条目合计 233 条　初始开启 52 条　初始启用正文 12035 字
-文件 芳乃预设.json　0.65 MB
+文件 芳乃预设.json　0.66 MB
 
 各来源初始开启条数：
   OWN       0 /   5

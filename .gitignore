@@ -17,6 +17,8 @@
 /preset/芳乃预设.json
 /preset/芳乃预设.zip
 /preset/fano-thinking-chain.json
+# 从九域一体化角色卡剥离出来的独立预设（预设正文 + 卡内控制台脚本，都属原作者）
+/preset/九域0.2.7-预设.json
 /芳乃预设_功能总览与使用说明/
 *.7z
 

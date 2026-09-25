@@ -1513,6 +1513,16 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
   ok('旧版面板（抽掉能力标记）：仍是我们这套，但缺 longPressEdit',
     PEg.panelSupport(OLD_PANEL).ours === true && PEg.panelSupport(OLD_PANEL).missing.join() === 'longPressEdit',
     JSON.stringify(PEg.panelSupport(OLD_PANEL)));
+
+  /* 0.6.0 起有**第二个**能力标记（顶部隐藏按钮 / 壁纸开关 + 纯色底 / 小方案长按改名）。
+     两个标记各自独立：抽掉一个不该影响另一个。 */
+  const capKey2 = PEg.PANEL_CAP_MARKS.controlsV06;
+  ok('新版面板里两个能力标记都在',
+    NEW_PANEL.includes(capKey) && NEW_PANEL.includes(capKey2), JSON.stringify(PEg.PANEL_CAP_MARKS));
+  const OLD2 = NEW_PANEL.replace(capKey2, 'FANO_PANEL_CAP_RETIRED');
+  ok('只缺 0.6.0 那批能力 → missing 只有 controlsV06',
+    PEg.panelSupport(OLD2).ours === true && PEg.panelSupport(OLD2).missing.join() === 'controlsV06',
+    JSON.stringify(PEg.panelSupport(OLD2)));
   const ADAPTED = OLD_PANEL
     .replace(/FANO_PANEL_GROUPS_BEGIN/g, 'ADAPTED_BEGIN')
     .replace(/FANO_PANEL_GROUPS_END/g, 'ADAPTED_END');
@@ -1549,6 +1559,22 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
   ok('旧面板 → 拦住导出，并点名原因',
     checks({ groups: 0, appearance: false }).blocking.some((b) => b.kind === '面板是旧版：不能长按改正文'),
     kinds(checks({ groups: 0, appearance: false })));
+  /* 缺的是 0.6.0 那批能力 → 另一条拦截、另一句人话 */
+  PEg.setScriptField(e, base, view.ref, 'content', view.content.replace(capKey2, 'FANO_PANEL_CAP_RETIRED'));
+  ok('缺"隐藏按钮 / 壁纸开关 / 小方案改名" → 拦住导出，且说的是这一批',
+    checks({ groups: 0, appearance: false }).blocking
+      .some((b) => b.kind === '面板是旧版：没有隐藏按钮 / 壁纸开关 / 小方案改名'),
+    kinds(checks({ groups: 0, appearance: false })));
+  /* 两块都缺 → 两条拦截；但"就带这个旧面板导出"说一次就够，别问两遍 */
+  PEg.setScriptField(e, base, view.ref, 'content',
+    view.content.replace(capKey, 'FANO_PANEL_CAP_RETIRED').replace(capKey2, 'FANO_PANEL_CAP_RETIRED'));
+  ok('两块能力都缺 → 两条拦截（各说各的）',
+    checks({ groups: 0, appearance: false }).blocking.filter((b) => /面板是旧版/.test(b.kind)).length === 2,
+    kinds(checks({ groups: 0, appearance: false })));
+  ok('说一次"就带旧的" → 两条一起放行',
+    checks({ groups: 0, appearance: false, staleIgnored: true }).blocking.length === 0,
+    kinds(checks({ groups: 0, appearance: false, staleIgnored: true })));
+  PEg.setScriptField(e, base, view.ref, 'content', view.content.replace(capKey, 'FANO_PANEL_CAP_RETIRED'));
   ok('旧面板 + 说"就带这个旧面板导出" → 放行，但仍留一条提示',
     checks({ groups: 0, appearance: false, staleIgnored: true }).blocking.length === 0
     && checks({ groups: 0, appearance: false, staleIgnored: true }).warnings.some((w) => w.kind === '带着旧版面板导出'),

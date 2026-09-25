@@ -220,9 +220,18 @@
            拿整份比对会让人永远解不开这道拦截。 */
         const cfgChanged = A.dirty === true;
         let grpChanged = false;
+        /* 要对**两种写法**都试一遍：草稿写进脚本时会顺手去品牌化
+           （`芳乃主体层（本预设新增）` → `本预设主体层`），只拿原样草稿去比会误判成"还没应用"，
+           那道拦截就再也解不开了——与面板标题那条是同一个坑：凡是"写的时候替你规范化"的东西，
+           判断"应用了没"就得用同一套口径。 */
         if (own) {
-          try { grpChanged = PC.patchGroups(A.content, normalizeOverride(state.groupsDraft)) !== A.content; }
-          catch { grpChanged = true; }
+          try {
+            const ov = normalizeOverride(state.groupsDraft);
+            const cands = [ov, PC.neutralizeData(ov)];
+            grpChanged = !cands.some((c) => {
+              try { return PC.patchGroups(A.content, c) === A.content; } catch { return false; }
+            });
+          } catch { grpChanged = true; }
         }
         unapplied = cfgChanged || grpChanged;
       }
@@ -249,7 +258,17 @@
       const s = panels[0];
       const size = Math.round(s.bytes / 1024);
       const sup = PE.panelSupport ? PE.panelSupport(s.content) : { ours: false, missing: [] };
-      const stale = sup.ours && sup.missing.includes('longPressEdit');
+      /* **认全部能力标记**，别只认某一条。0.5.0 那份面板缺的恰恰是 0.6.0 这批——
+         只判 longPressEdit 的话这里会认成"没问题"：卡片显示绿色「已装进这份预设」，
+         而 editor.js 那边照样拦住导出、卡片上又**没有补救按钮**，人就堵死了。
+         （真踩过：用户直接问"「换成新版面板」这个按钮在哪儿"。） */
+      const CAP_LABEL = {
+        longPressEdit: '长按条目改正文',
+        controlsV06: '顶部隐藏按钮 / 壁纸开关 + 纯色底 / 小方案长按改名',
+      };
+      const missing = sup.ours ? (sup.missing || []) : [];
+      const missingText = missing.map((k) => CAP_LABEL[k] || k).join('、');
+      const stale = missing.length > 0;
       const ignoringStale = !!pi && pi.staleIgnored === true;
       if (!s.enabled) {
         level = 'warn';
@@ -257,8 +276,8 @@
         lines.push(`「${s.name}」（${size}KB）的 enabled 是关的——酒馆助手不会执行它，悬浮球不会出现。去「脚本编辑」打开它。`);
       } else if (stale && !ignoringStale) {
         level = 'err';
-        pill = h('span', { class: 'pill err', text: '面板是旧版：不能长按改正文' });
-        lines.push(`面板脚本「${s.name}」（${size}KB）里**没有"长按条目改正文"**——导出去以后在酒馆里长按条目不会有反应。`);
+        pill = h('span', { class: 'pill err', text: '面板是旧版：缺 ' + missingText });
+        lines.push(`面板脚本「${s.name}」（${size}KB）里**没有**：${missingText}——导出去以后在酒馆里点了不会有反应。`);
         lines.push('点「换成新版面板」把代码换成新版：你在「面板外观 / 面板分组」里改过的设置（标题、颜色、球、窗口、分组）会带过去。');
         btns.push(h('button', { class: 'btn', text: '换成新版面板', onclick: () => upgradePanelScript() }));
         btns.push(h('button', {
@@ -266,14 +285,14 @@
           onclick: () => {
             const p = preset();
             state.panelStaleIgnored = { key: p ? (p.file || '') : '', rev: state.rev };
-            banner('好——这次带着这个旧面板导出。长按改正文不会有；改动一下别的地方，它会再问你一次。', 'ok');
+            banner(`好——这次带着这个旧面板导出。${missingText}不会有；改动一下别的地方，它会再问你一次。`, 'ok');
             renderAll();
           },
         }));
       } else if (stale) {
         level = 'warn';
         pill = h('span', { class: 'pill warn', text: '带着旧版面板导出（已确认）' });
-        lines.push(`面板脚本「${s.name}」（${size}KB）是旧版：**长按条目改正文**不会有。`);
+        lines.push(`面板脚本「${s.name}」（${size}KB）是旧版：**${missingText}**不会有。`);
         btns.push(h('button', { class: 'btn', text: '还是换成新版面板', onclick: () => upgradePanelScript() }));
       } else if (intent && pi.unapplied) {
         level = 'warn';
@@ -2024,6 +2043,14 @@
               h('span', { text: '压暗颜色' }),
               h('input', { type: 'color', value: toHex(WALL.dimColor), onchange: (ev) => { cfg.wallpaper.dimColor = ev.target.value; bump(); } }),
             ]),
+            h('label', { class: 'numfield' }, [
+              h('span', { text: '这份预设默认开着壁纸' }),
+              h('input', {
+                type: 'checkbox', checked: WALL.enabled !== false,
+                onchange: (ev) => { cfg.wallpaper.enabled = ev.target.checked; bump(); },
+              }),
+              h('span', { class: 'dim', text: '关掉的话，面板底色改用「纯色底」那个颜色（配色区里按昼夜各设一个）；装进酒馆后用户点标题栏的 🖼 能自己切回来' }),
+            ]),
           ]),
       ]));
 
@@ -2632,14 +2659,66 @@
     };
   }
 
+  /**
+   * 装进**别人**的预设时，面板该用"那份预设自己的"分组。
+   * 优先用你搭的草稿；没搭就按这份预设推断（`groupinfer` 干的就是"把任意预设读成模块表"）。
+   * **永远返回一份**：返回空会让面板自带那张芳乃模块表留在文件里——那是最重的一处泄漏
+   * （200 个芳乃条目名），也会让面板在别人家列出一堆那份预设根本没有的条目、开关点不动。
+   *
+   * 草稿要**去品牌化**：它多半是从"面板自带的那个分组"复制来的（那是芳乃预设的清单），
+   * 里面带着 `🌸芳乃 · 称呼`、`芳乃主体层（本预设新增）` 这类字样。
+   * 推断出来的分组则一个字不动——那是目标预设自己的条目名，动了反而会让面板找不到它。
+   */
+  function foreignGroups(withGroups = true) {
+    /* 有草稿就用草稿（去掉品牌字样）。**不要**因为"这份草稿你没动过"就改用推断结果——
+       两条理由，都是实测出来的：
+         · **画布本来就会自己判**：`canvasState()` 先量"面板自带的分组跟这份预设对得上多少"，
+           对不上（ratio < 0.5）就直接摆一版**按这份预设推断**的草稿当起点。实测 ratio：
+           九域 0.000、Kemini 0.093 → 走推断；Izumi 0.869、芳乃成品 1.000 → 照自带那份画。
+           也就是说"别人的预设里看到芳乃那套条目名"这件事，画布早就不这么干了。
+         · **"没动过" ≠ "不是我选的"**：界面上那几个按钮（清空成空面板 / 加入所有条目 /
+           按这份预设自动推断）摆出来的草稿同样是"程序摆的、你没动过"，但它们是**你点出来的**意图——
+           忽略它们会直接违背按钮的意思（点了「清空成空面板」却装进去一版推断分组）。
+       "没动过的草稿不算你在搭面板"这条只该用在**导出拦截**上（见 panelIntent），别挪到这儿来。 */
+    if (withGroups && state.groupsDraft) {
+      const o = PC.neutralizeData(normalizeOverride(state.groupsDraft));
+      return { groups: o.groups, sections: o.sections, thinkingTags: o.thinkingTags, display: o.display };
+    }
+    const p = preset();
+    if (p && GI) {
+      try {
+        const inf = GI.inferGroups(p.model, p.json);
+        return { groups: inf.groups, sections: inf.sections, thinkingTags: inf.thinkingTags, display: inf.display || {} };
+      } catch { /* 推断失败就退到空表：宁可模块表空着，也不能把芳乃那份留下 */ }
+    }
+    return { groups: [], sections: [], thinkingTags: [], display: {} };
+  }
+
   /** 当前面板源码 + 外观配置 + 分组覆盖（除非传 false） */
   function panelSourceWithEdits(withGroups = true) {
     const A = ensureAppearance();
-    let src = A.source === 'preset' ? A.content : (PANEL_DEMO?.source ?? '');
+    /* `A.source !== 'preset'` = 这份预设里本来没有我们的面板，这次才要**装进去**。
+       装进别人的预设时，面板随身带的"芳乃预设数据 + 芳乃字样"要换成中性的、或那家自己的：
+       面板源码本体不动——那是芳乃自己那份，就该写着芳乃。见 PC.foreignPanelSource 的注释。 */
+    const fresh = A.source !== 'preset';
+    let src = fresh ? (PANEL_DEMO?.source ?? '') : A.content;
     /* 标题落成具体的字（没填就用预设名）——见 panelTitle() 的注释：
        留空会让真面板显示它自带那句兜底文案，与画布不一致。 */
     src = PC.patchConfig(src, { ...A.config, title: panelTitle() });
-    if (withGroups && state.groupsDraft) src = PC.patchGroups(src, normalizeOverride(state.groupsDraft));
+    /* 草稿照旧写进 GROUPS_OVERRIDE（"还没应用"的判据读的就是这一段，不能改存别处） */
+    const draftOv = withGroups && state.groupsDraft ? normalizeOverride(state.groupsDraft) : null;
+    if (fresh) {
+      /* 顶部按钮名跟标题走同一条规则（装到谁家就写谁的名字）；有草稿时再把同一份分组
+         写进"覆盖"那段——"还没应用"的判据读的就是它。
+         去品牌化与那道断言都在 PC.foreignPanelSource 里，所以探针与实现共用同一条路。 */
+      src = PC.foreignPanelSource(src, {
+        buttonLabel: '🙈 隐藏',
+        alsoOverride: !!draftOv,
+        ...foreignGroups(withGroups),
+      });
+    } else if (draftOv) {
+      src = PC.patchGroups(src, draftOv);
+    }
     return src;
   }
 
@@ -4133,6 +4212,28 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
           ok('一键换新：分组块也还在', String(up.content).includes('FANO_PANEL_GROUPS_BEGIN'));
           ok('换新之后不再拦导出', runExportChecks().blocking.length === 0,
             JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
+
+          /* **只缺 0.6.0 那批能力**（= 面板 0.5.0，最常见的一种）：
+             导出被拦住时，卡里**照样要有补救按钮**。这条是在被用户问过
+             "「换成新版面板」按钮在哪儿"之后补的——当时卡只认 longPressEdit，
+             于是这种情形下卡片显示绿色、导出按钮却是禁用的，人直接被堵死。 */
+          PE.setScriptField(state.edit, preset().json, up.ref, 'content',
+            String(up.content).replace(PE.PANEL_CAP_MARKS.controlsV06, 'FANO_PANEL_CAP_RETIRED'));
+          state.rev++;
+          renderAll();
+          ok('只缺 0.6.0 那批 → 导出仍被拦住，并点名是哪批',
+            runExportChecks().blocking.some((b) => b.kind === '面板是旧版：没有隐藏按钮 / 壁纸开关 / 小方案改名'),
+            JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
+          ok('卡里照样给「换成新版面板」（拦住却不给路＝把人堵死）',
+            [...document.getElementById('view').querySelectorAll('button')]
+              .some((b) => /换成新版面板/.test(b.textContent)),
+            [...document.getElementById('view').querySelectorAll('button')].map((b) => b.textContent).join('｜'));
+          ok('卡片自己也得说"旧版"，不能显示成绿色「已装进这份预设」',
+            /面板是旧版/.test(document.getElementById('view').textContent),
+            (document.getElementById('view').textContent.match(/.{0,20}旧版.{0,20}/) || [''])[0]);
+          PE.setScriptField(state.edit, preset().json, up.ref, 'content', up.content);
+          state.rev++;
+          renderAll();
 
           /* 活路：就想带着这个旧面板导出 */
           PE.setScriptField(state.edit, preset().json, up.ref, 'content',

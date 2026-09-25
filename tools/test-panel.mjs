@@ -627,7 +627,7 @@ console.log('\n[13] 脚本层防截断：开关真的装/卸，正文真的从�
   ok('控制台 API 在（v2.8.1 那套 __FANO_ANTITRUNC__）', !!AT && typeof AT.isEnabled === 'function' && typeof AT.lastRun === 'function',
     Object.keys(AT ?? {}).join('、'));
   ok('锚点沿用 <format>', AT.anchor === '<format>', String(AT.anchor));
-  ok('面板把两个按钮声明给了宿主', declaredButtons.join('|') === '⚙ 芳乃|🛡 防截断', declaredButtons.join('|'));
+  ok('面板把两个按钮声明给了宿主', declaredButtons.join('|') === '🙈 隐藏|🛡 防截断', declaredButtons.join('|'));
   ok('默认开着，且拦截器真挂在 window.fetch 上（不是只改了个标志位）',
     AT.isEnabled() === true && AT.installed() === true && win.fetch !== rawFetch);
 
@@ -784,6 +784,165 @@ console.log('\n[14] 长按条目 → 改这一条的正文');
   ok('closeEditor() 能收起浮层', !maskNow());
   ok('只读区的那一行也在（名字可长按）', switchesIn('anchors').length === groups.find((g) => g.id === 'anchors').members.length,
     `${switchesIn('anchors').length} 行`);
+}
+
+console.log('\n[15] 顶部按钮=整块隐藏 / 壁纸开关+纯色 / 小方案长按改名');
+{
+  const api = win.__FANO_PANEL__;
+  const sleep = (n) => new Promise((r) => setTimeout(r, n));
+  const rootEl = () => dom.document.getElementById('fano-preset-panel-v1-root');
+  const btnName = api.config().effective.button.panel;
+  api.open();
+  await tick();
+
+  /* ── 15a. 顶部按钮：把悬浮球和面板一起藏起来 / 再叫回来 ──
+     （以前它是"开合窗口"，用户点名要的功能是"整块隐藏"。） */
+  ok('顶部按钮接上了线（名字取自 CONFIG.button.panel）', buttonEvents.has('evt:' + btnName), String(btnName));
+  ok('一开始是显示状态', api.isHidden() === false, String(api.isHidden()));
+  clickButton(btnName);
+  ok('点一下：整块藏起来（连球一起）', api.isHidden() === true && rootEl().dataset.hidden === '1',
+    `hidden=${api.isHidden()} / data-hidden=${rootEl().dataset.hidden}`);
+  ok('藏起来之后悬浮球也不画了', !walk(rootEl()).some((n) => n.className === 'fp-launch'));
+  ok('隐藏状态落盘（刷新也记得——按钮就是回来的路）',
+    localStorage.getItem('fano-preset-panel-v1_hidden_v1') !== null,
+    String(localStorage.getItem('fano-preset-panel-v1_hidden_v1')));
+  clickButton(btnName);
+  ok('再点一下：面板回来了（窗口仍是开着的，不然叫回来也看不见）',
+    api.isHidden() === false && rootEl().dataset.hidden === '0' && api.isHidden() === false);
+
+  /* ── 15b. 小方案：长按 chip 就地改名 ── */
+  const chipByText = (t) => walk(rootEl()).find((n) => n.className === 'fp-chip' && n.textContent === t);
+  const pev = (node, type) => node.dispatchEvent(type, {
+    clientX: 10, clientY: 10, button: 0, target: node, preventDefault() {}, stopPropagation() {},
+  });
+  const saveChip = chipByText('＋存为小方案');
+  ok('脚注里有「＋存为小方案」', !!saveChip);
+  saveChip.dispatchEvent('click');
+  await tick();
+  let ps = api.plans();
+  ok('存下了一个小方案', ps.length === 1 && /^方案 \d+$/.test(ps[0].name), JSON.stringify(ps));
+
+  const chipOf = (id) => walk(rootEl()).find((n) => n.className === 'fp-chip' && n.dataset && n.dataset.plan === id);
+  const chip = chipOf(ps[0].id);
+  ok('方案 chip 上挂着 id（长按改名靠它认人）', !!chip);
+  pev(chip, 'pointerdown');
+  await sleep(api.config().effective.edit.longPress.ms + 80);
+  const input = walk(chip).find((n) => n.tagName === 'INPUT');
+  ok('长按 chip → 就地出现改名输入框（预填原名）', !!input && input.value === ps[0].name,
+    input ? JSON.stringify(input.value) : '没有输入框');
+  input.value = '我的摸鱼方案';
+  input.dispatchEvent('keydown', { key: 'Enter', preventDefault() {} });
+  await tick();
+  ps = api.plans();
+  ok('回车保存：名字改掉了', ps[0].name === '我的摸鱼方案', JSON.stringify(ps));
+  ok('改名之后 chip 上显示的是新名字', !!chipByText('我的摸鱼方案'));
+  ok('程序化入口 renamePlan 也能改',
+    api.renamePlan(ps[0].id, '方案·二') === true && api.plans()[0].name === '方案·二');
+
+  /* ── 15c. 壁纸开关 + 纯色背景 ──
+     这两个控件只在**配了壁纸**时才长出来，所以另起一套壳、把壁纸塞进 CONFIG 再加载一遍
+     （用生成器自己的 patchConfig 塞，免得手写 CONFIG 字面量再对不上）。 */
+  const PC = (() => {
+    new Function('globalThis', fs.readFileSync(P('tools', 'gui', 'lib', 'panelconfig.js'), 'utf8'))(globalThis);
+    return globalThis.PresetPanelConfig;
+  })();
+  const rawSrc = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
+  const cfg0 = PC.extractConfig(rawSrc);
+  const src2 = PC.patchConfig(rawSrc, {
+    ...cfg0, wallpaper: { ...cfg0.wallpaper, url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' },
+  });
+  ok('（测试准备）往面板 CONFIG 里塞了一张壁纸', PC.extractConfig(src2).wallpaper.url.length > 0);
+
+  const dom2 = makeDom();
+  const store2 = new Map();
+  const ls2 = {
+    getItem: (k) => (store2.has(k) ? store2.get(k) : null),
+    setItem: (k, v) => store2.set(k, String(v)),
+    removeItem: (k) => store2.delete(k),
+  };
+  const win2 = { innerWidth: 1280, innerHeight: 900, addEventListener() {}, localStorage: ls2 };
+  win2.fetch = rawFetch;
+  win2.appendInexistentScriptButtons = () => {};
+  win2.getButtonEvent = (n) => 'evt:' + n;
+  win2.eventOn = () => {};
+  load(fs.readFileSync(P('panel', 'preview-host.js'), 'utf8'), win2, dom2.document, ls2);
+  load(src2, win2, dom2.document, ls2);
+  await tick();
+  const api2 = win2.__FANO_PANEL__;
+  const root2 = () => dom2.document.getElementById('fano-preset-panel-v1-root');
+  const style2 = () => dom2.document.head.children.map((c) => c.textContent || '').join('\n');
+  const wallEl2 = () => dom2.document.getElementById('fano-preset-panel-v1-wall');
+  const iconByTitle = (re) => walk(root2()).find((n) => n.className === 'fp-icon' && re.test(n.title || ''));
+
+  ok('配了壁纸 → 面板认得出', api2.wallpaper().configured === true && api2.wallpaper().shown === true,
+    JSON.stringify(api2.wallpaper()));
+  ok('壁纸层画出来了', !!wallEl2());
+  ok('标题栏有「关掉壁纸」这个按钮', !!iconByTitle(/关掉壁纸/),
+    walk(root2()).filter((n) => n.className === 'fp-icon').map((n) => n.title).join('｜'));
+  ok('壁纸开着时不给纯色选择器（那时它不生效，给了只会误导）',
+    !walk(root2()).some((n) => n.className === 'fp-color'));
+
+  iconByTitle(/关掉壁纸/).dispatchEvent('click');
+  await tick();
+  ok('点一下：壁纸关掉、改用纯色', api2.wallpaper().on === false && api2.wallpaper().shown === false
+    && api2.wallpaper().solidActive === true, JSON.stringify(api2.wallpaper()));
+  ok('壁纸层撤掉了', !wallEl2());
+  ok('底色层拿到纯色变量 --fp-solid-bg（**没选过色就指向主题 token**，昼夜自动跟着换）',
+    /--fp-solid-bg:var\(--fp-solid\)/.test(style2()),
+    (style2().match(/--fp-solid-bg:[^;]*/) || ['没有'])[0]);
+  ok('关掉之后才出现纯色选择器', !!walk(root2()).find((n) => n.className === 'fp-color'));
+
+  api2.setWallpaper({ color: '#123456' });
+  await tick();
+  ok('选了色：变量跟着换', api2.wallpaper().solid === '#123456' && /--fp-solid-bg:#123456/i.test(style2()),
+    (style2().match(/--fp-solid-bg:[^;]*/) || ['没有'])[0]);
+  api2.setWallpaper({ on: true });
+  await tick();
+  /* 注意：`--fp-solid-bg` 这个名字**在静态 CSS 里本来就有**（.fp-bglayer 的 var 兜底），
+     所以这里必须测"有没有被**声明**成某个值"，不能测"名字出现过没有"——踩过。 */
+  ok('再开回壁纸：壁纸层回来、纯色变量撤掉',
+    api2.wallpaper().shown === true && !!wallEl2() && !/--fp-solid-bg\s*:#/.test(style2()),
+    `shown=${api2.wallpaper().shown}｜wall层=${!!wallEl2()}｜`
+    + `样式里还有纯色声明=${/--fp-solid-bg\s*:#/.test(style2())}｜${(style2().match(/--fp-solid-bg\s*:[^;]*/) || [''])[0]}`);
+  ok('壁纸偏好落盘了（跟夜间模式一样是使用者偏好，不进预设）',
+    ls2.getItem('fano-preset-panel-v1_wall_v1') !== null, String(ls2.getItem('fano-preset-panel-v1_wall_v1')));
+
+  /* ── 15d. **预设默认值**：编辑器里把"默认关掉壁纸"设好，装进酒馆就是纯色底 ──
+     （这是"使用者偏好"之上的那一层：进文件、可被编辑器设定；用户点过之后以他点的为准。） */
+  const src3 = PC.patchConfig(rawSrc, {
+    ...cfg0,
+    wallpaper: { ...cfg0.wallpaper, url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', enabled: false },
+  });
+  ok('（测试准备）写进去的是"配了壁纸但默认关着"', PC.extractConfig(src3).wallpaper.enabled === false);
+
+  const dom3 = makeDom();
+  const store3 = new Map();
+  const ls3 = {
+    getItem: (k) => (store3.has(k) ? store3.get(k) : null),
+    setItem: (k, v) => store3.set(k, String(v)),
+    removeItem: (k) => store3.delete(k),
+  };
+  const win3 = { innerWidth: 1280, innerHeight: 900, addEventListener() {}, localStorage: ls3 };
+  win3.fetch = rawFetch;
+  win3.appendInexistentScriptButtons = () => {};
+  win3.getButtonEvent = (n) => 'evt:' + n;
+  win3.eventOn = () => {};
+  load(fs.readFileSync(P('panel', 'preview-host.js'), 'utf8'), win3, dom3.document, ls3);
+  load(src3, win3, dom3.document, ls3);
+  await tick();
+  const api3 = win3.__FANO_PANEL__;
+  const style3 = () => dom3.document.head.children.map((c) => c.textContent || '').join('\n');
+
+  ok('预设说"默认关掉壁纸" → 面板一上来就不画壁纸层',
+    api3.wallpaper().on === false && api3.wallpaper().shown === false
+    && !dom3.document.getElementById('fano-preset-panel-v1-wall'), JSON.stringify(api3.wallpaper()));
+  ok('底色用的是纯色底那个**配色 token**（于是昼夜各一套、外观页上就是取色器）',
+    /--fp-solid-bg:var\(--fp-solid\)/.test(style3()) && /--fp-solid:#fff7fa/.test(style3()),
+    (style3().match(/--fp-solid-bg:[^;]*/) || ['没有'])[0]);
+  api3.setWallpaper({ on: true });
+  await tick();
+  ok('用户点一下就能切回壁纸（预设默认值只是起点）',
+    api3.wallpaper().shown === true && !!dom3.document.getElementById('fano-preset-panel-v1-wall'));
 }
 
 console.log('\n────────────────────────────────────────');
