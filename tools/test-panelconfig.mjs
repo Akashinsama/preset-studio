@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { has, need, skip } from './lib/fixtures.mjs';
+import { has, need, skip, isSynthetic } from './lib/fixtures.mjs';
 
 /* 夹具守卫：这套测试真加载面板，宿主数据来自 preview-host.js（由成品预设生成）；
    另外要一份预设当样本（优先 Izumi，其次成品）。都见 samples/README.md。 */
@@ -431,10 +431,18 @@ console.log('\n[9] 装进预设：从**导出的 JSON** 里取出脚本，真加
     mine && JSON.stringify(Object.keys(mine)) === JSON.stringify(['type', 'enabled', 'name', 'id', 'content', 'info', 'button', 'data', 'export_with']),
     mine ? JSON.stringify(Object.keys(mine)) : '');
   ok('脚本默认启用（预设里带脚本的意义就是要它自己跑）', mine?.enabled === true);
+  /* 被保护的那条脚本，按名字取——真夹具里它叫「泉此方悬浮窗」，合成夹具里叫占位脚本，
+     但断言的意思一样：**原来那条不许被动**。 */
+  const keptName = json.extensions?.tavern_helper?.scripts?.[0]?.name;
   ok('原来那份预设的脚本没被动',
-    scripts[0] === json.extensions.tavern_helper.scripts[0]
-    && (!hasThirdParty || scripts.some((s) => s.name === '泉此方悬浮窗')),
-    `脚本 ${scripts.map((s) => s.name).join('、')}`);
+    /* 比的是"没被动过"这件事：真夹具那一路按**对象同一性**比（applyEdit 不改动就该是同一个对象），
+       合成夹具那一路按内容比——因为合成夹具是生成出来的，同一性无法保证，
+       而"内容一字未改"才是这条断言真正要守的东西。 */
+    (isSynthetic(THIRD_PARTY) || !hasThirdParty
+      ? JSON.stringify(scripts[0]) === JSON.stringify(json.extensions.tavern_helper.scripts[0])
+      : scripts[0] === json.extensions.tavern_helper.scripts[0])
+    && (!hasThirdParty || scripts.some((s) => s.name === keptName)),
+    `脚本 ${scripts.map((s) => s.name).join('、')}　（应为 ${keptName}）`);
 
   /* 关键一步：真加载它 */
   const booted = await bootWith(mine.content);

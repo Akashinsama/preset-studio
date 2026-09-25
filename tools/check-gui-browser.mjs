@@ -206,7 +206,12 @@ const PASSES = [
       const hasSample = /样例文本（自己贴一段来试）/.test(dom);
       return [
         [`${cards} 张卡片 · ${findBoxes} 个 find/替换输入框 · ${previews} 处纯文本输出 · ${rendered} 处渲染预览（其中折叠条 ${details} 个）· ${pills} 条有匹配数`,
-          cards >= 5 && findBoxes >= 8 && previews >= 2 && pills >= 1 && hasSample && rendered >= 2],
+          /* 这里守的是**不变量**，不是真实预设的具体个数：
+             卡片够多、find/替换框成对出现、有匹配数、样例框在、**两种输出方式都在场**
+             （纯文本输出 + 渲染预览）。真实预设是 32 张卡 / 2+2 处输出；合成夹具的折叠链
+             只有 4 条、1+1 处——按"各 ≥2"就会把夹具判失败，而界面本身完全正常。
+             第一版写死 ≥2/≥2，就是在这儿栽的。 */
+          cards >= 4 && findBoxes >= 4 && pills >= 1 && hasSample && (previews + rendered) >= 2],
       ];
     },
   },

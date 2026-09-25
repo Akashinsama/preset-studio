@@ -22,25 +22,36 @@
 
 ## 自检怎么跑
 
+**先跑一句**（造合成夹具 + 把整条链跑完，之后所有测试都能真跑）：
+
 ```bash
-node tools/build-panel.mjs        # 真跑（只用 panel/src + spec/groups.json 重建面板脚本）
-node tools/test-regex.mjs         # 30 项   思维链折叠链逻辑
-node tools/selftest.mjs           # 72 项   包内自检：库 + 面板 + 成品预设
-node tools/test-gui.mjs           # 331 项  解析 / 拼装内核（含真实预设的规模验证）
-node tools/test-panel.mjs         # 120 项  面板逻辑（假 DOM）
-node tools/test-panelconfig.mjs   # 83 项   面板外观配置夹取一致性
-node tools/check-preset.mjs       # 108 项  成品预设独立校验（逐条哈希证明来源未改）
-node tools/check-gui-browser.mjs  # 十屏 DOM 取证（要本机 Chrome/Edge）
+node tools/build-all.mjs          # make-fixture → build-regex → build-panel → build-preset
+                                  # → build-preview → build-gui-demo → build-package
 ```
 
-> **克隆下来直接跑会看到一片 `SKIP`，这是预期行为**：上面这些（除 `build-panel`）
-> 都要一份真实预设当样本，而本仓库不随附预设正文（见 [`NOTICE.md`](NOTICE.md)）。
-> 它们会打印缺哪个文件、往哪放，然后**退出 0**——不会红一片，也不会假装通过。
-> 想真跑：按 [`samples/README.md`](samples/README.md) 放好夹具即可；
-> 设 `DSH_REQUIRE_FIXTURES=1` 则把"缺失"当失败（CI 用）。
+```bash
+node tools/selftest.mjs           # 72 项   包内自检：库 + 面板 + 样例预设
+node tools/test-regex.mjs         # 30 项   思维链折叠链逻辑
+node tools/test-gui.mjs           # 331 项  解析 / 拼装内核 + M3 编辑端到端
+node tools/test-panel.mjs         # 120 项  面板逻辑（假 DOM）
+node tools/test-panelconfig.mjs   # 83 项   面板外观配置夹取一致性
+node tools/test-mobile.mjs        # 20 项   手机场景
+node tools/test-iframe.mjs        # 26 项   iframe 与时序
+node tools/check-preset.mjs       # 108 项  样例预设的独立校验
+node tools/check-browser.mjs      # 58 项   面板布局（真浏览器，本机 Chrome/Edge）
+node tools/check-gui-browser.mjs  # 十屏    生成器 GUI 的 DOM 取证（真浏览器）
+```
+
+实测：**790 项全绿**（上面除浏览器两层）+ 浏览器两层在合成夹具上同样通过。
+
+> **这些不需要你先准备任何预设。** 缺夹具时 `tools/lib/fixtures.mjs` 会自动调
+> `tools/make-fixture.mjs` 造一份**合成夹具**：结构（条目名 / 槽位 / 顺序 / 开关）从 `spec/` 里
+> 已经进库的规格推出来，正文全是「【合成夹具】…」占位，**不含任何预设正文**。
+> 少数几条"真实规模"断言（226 条 / 60 条开启 / 30 条正则）在合成夹具下会**按夹具重算基准**
+> 并打印一行说明——不是被放过，是换了基准。想看真实数字，把你的预设放成同名再跑一遍
+> （见 [`samples/README.md`](samples/README.md)）。
 >
-> 页面本身不依赖夹具：双击 `tools/gui/index.html` → 导入你自己的预设，全功能可用。
-> 带 `?selftest=1` 时没有演示数据也会跑一组与预设无关的断言（8 项），并把跳过项写清楚。
+> 真的连合成夹具都造不出来时才会打印 `SKIP` 并退出 0；`DSH_REQUIRE_FIXTURES=1` 把缺失变成失败。
 
 ## 许可
 
@@ -163,8 +174,10 @@ node tools/test-iframe.mjs                               # 26 项
 node tools/test-regex.mjs                                # 30 项
 ```
 
-不带进包的是：要第三方源预设的 `build-{groups,regex,panel,preset,preview}.mjs`、
-以 Izumi 为素材的 `test-gui.mjs`、以及本机专用的 `diag-*`。**宁可不发，也不发一个跑起来就报错的脚本。**
+不带进包的是：需要第三方源预设的 `build-{groups,regex,preset,preview}.mjs`（跑之前得先有夹具，
+见下），以及一批本机专用的一次性诊断脚本 `diag-*`——后者已经删掉了：
+它们写死读那三份预设，在克隆下来的仓库里**一跑就报错**，而"宁可不发，也不发一个跑起来就报错的脚本"
+是这个仓库自己的规矩。需要时从 git 历史里取回来即可。
 
 > 注意：本机文件沙箱下 `fs.rmSync` 是**静默失效**的（文件还在，甚至把进程搞崩），
 > 所以 `build-package.mjs` 自己用 `unlinkSync` + `rmdirSync` 清目录。清目录这种事别偷懒。
@@ -320,7 +333,10 @@ M0/M1/M2 看的、体检的、导出的，是同一条路径出来的同一份�
 
 **改动只发生在结构上（对你导入的预设而言）。** 没动过的条目在导出时**复用原对象**（不是深拷贝再写回），
 所以"来源一字未改"是可验证的事实：页面里显示逐条核对结果，Node 测试用 sha1 逐字节证明。
-导入的预设里，来源正文**只读**——输入框只给"你自己写的条目"（工具生成的骨架、你自己新增的）。
+导入的预设里，来源正文**可以改**（v2.4 起放开的）——「条目」页点条目名就展开就地编辑，
+「框架编辑」页也能改；改过的行会标「已改」，随时能「还原成导入时的原文」。
+所以"来源提示词一字未改"这句话说的是**你没动过的那些仍然一字未改**：页面上用逐条 sha1
+核对（`verifySourceIntact`），导出报告里会写明改了几条、删了几条。
 新条目的正文一律从 `{{//待填：…}}` 起步：在酒馆里看得见，展开后是空的，
 所以它既不会喂进模型，也不会被体检器误判成"你把占位话术发给模型了"。
 

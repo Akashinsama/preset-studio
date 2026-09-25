@@ -64,6 +64,10 @@
     night: ID + '_night_v1',
     pos: ID + '_pos_v1',
     size: ID + '_size_v1',
+    /* 悬浮球自己的坐标（球是能拖的，跟窗口坐标分开记） */
+    ball: ID + '_ball_v1',
+    /* 整块隐藏：默认**不落盘**（刷新必然回来）；显式 persistHidden(true) 才写 */
+    hidden: ID + '_hidden_v1',
     plans: ID + '_plans_v1',
     collapsed: ID + '_collapsed_v1',
     expanded: ID + '_expanded_v1',
@@ -158,8 +162,17 @@
       day: {},
       night: {},
     },
-    /* 悬浮球 */
-    ball: { size: 46, glyph: '芳' },
+    /* 悬浮球：大小 / 形状 / 内容是字还是图。
+       shape：circle 圆 · square 方 · rounded 圆角方 · diamond 菱形 · triangle 三角 · hexagon 六边
+       content.kind='image' 时用 content.image（**只能是 http(s) 外链或 data: 图片**——
+       面板跑在酒馆页面里，本机路径那种 C:\… 在那边加载不到）。
+       图片为空字符串时自动退回文字。 */
+    ball: {
+      size: 46,
+      glyph: '芳',
+      shape: 'circle',
+      content: { kind: 'text', image: '' },
+    },
     /* 窗口：默认尺寸、以及可拖动的上下限（都在这里改） */
     window: { w: 380, h: 620, minW: 260, minH: 200, maxW: 0, maxH: 0 },
     /* 整体观感 */
@@ -181,6 +194,9 @@
     },
   };
   /* ══ FANO_PANEL_CONFIG_END ════════════════════════════════════════════ */
+
+  /** 允许的球形状（写错就退回圆形，不让一个错字把球画没）。定义在 CFG 之前，CFG 初始化时要用 */
+  const BALL_SHAPES = ['circle', 'square', 'rounded', 'diamond', 'triangle', 'hexagon'];
 
   /* ── 芳乃 / 千恋万花 配色 token ─────────────────────────────────── */
   const THEMES = {
@@ -219,6 +235,12 @@
     ball: {
       size: Math.round(num(CONFIG?.ball?.size, 46, 28, 96)),
       glyph: String(CONFIG?.ball?.glyph ?? '芳').slice(0, 3) || '芳',
+      shape: BALL_SHAPES.includes(CONFIG?.ball?.shape) ? CONFIG.ball.shape : 'circle',
+      content: {
+        kind: CONFIG?.ball?.content?.kind === 'image' && String(CONFIG?.ball?.content?.image ?? '').trim()
+          ? 'image' : 'text',
+        image: String(CONFIG?.ball?.content?.image ?? ''),
+      },
     },
     window: {
       w: Math.round(num(CONFIG?.window?.w, 380, 200, 4000)),
@@ -350,6 +372,10 @@
     missing: new Map(),// groupId -> 缺失成员数
     night: readLS(LS.night, false),
     collapsed: false,
+    /* 整块隐藏：默认**只在本次会话有效**（刷新必然回来）。
+       存档里有这个键 = 用户显式 persistHidden 过，那就照办。 */
+    hidden: readLS(LS.hidden, false) === true,
+    persistHidden: readLS(LS.hidden, null) !== null,
     open: readLS(LS.open, true),
     /** 展开了哪些模块（手风琴）。默认全折。 */
     expanded: new Set(readLS(LS.expanded, [])),
@@ -852,6 +878,18 @@
 /* 金色点缀就用在球的金边上（改 --fp-gold 立刻看得见） */
 .fp-launch:hover{filter:brightness(1.06)}
 .fp-launch[data-open="1"]{opacity:.35}
+/* 形状：圆/方/圆角方靠 border-radius，菱形/三角/六边靠 clip-path */
+.fp-launch[data-shape="circle"]{border-radius:50%}
+.fp-launch[data-shape="square"]{border-radius:2px}
+.fp-launch[data-shape="rounded"]{border-radius:26%}
+.fp-launch[data-shape="diamond"]{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.fp-launch[data-shape="triangle"]{clip-path:polygon(50% 4%,98% 94%,2% 94%)}
+.fp-launch[data-shape="hexagon"]{clip-path:polygon(25% 4%,75% 4%,100% 50%,75% 96%,25% 96%,0 50%)}
+/* 尖角形状里的字要缩小，不然会顶出边界 */
+.fp-launch[data-shape="triangle"],.fp-launch[data-shape="diamond"],.fp-launch[data-shape="hexagon"]{font-size:calc(var(--fp-ball,46px) * .3)}
+.fp-ball-img{width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit}
+/* 整块隐藏时：根节点连球一起不画 */
+.fp-root[data-hidden="1"]{display:none}
 
 /* 窗口自己 fixed 定位，left/top 由 clampToViewport() 算好后写进去。
    底色/磨砂/壁纸都在子层里（.fp-bglayer/.fp-wall/.fp-walldim），
@@ -1008,26 +1046,47 @@
       HOST.doc.body.appendChild(root);
     }
     root.dataset.theme = state.night ? 'night' : 'day';
+    root.dataset.hidden = state.hidden ? '1' : '0';
     root.textContent = '';
 
-    /* 悬浮球 */
-    const ball = el('div', 'fp-launch', CFG.ball.glyph);
+    /* 悬浮球：形状 / 内容（字或图）/ 可拖 / 可整块隐藏 */
+    if (state.hidden) return;                    // 整块隐藏：连球一起不画
+    const ball = el('div', 'fp-launch');
     ball.dataset.open = state.open ? '1' : '0';
-    ball.title = state.open ? '收起芳乃面板' : '打开芳乃面板';
-    /* 坐标按当前视口算好写进去（不依赖容器被拉伸，也不依赖 bottom/env 的解析） */
+    ball.dataset.shape = CFG.ball.shape;
+    ball.title = (state.open ? '收起芳乃面板' : '打开芳乃面板') + '（可拖动；Ctrl+Shift+F 整块隐藏）';
+    if (CFG.ball.content.kind === 'image') {
+      const img = el('img', 'fp-ball-img');
+      img.src = CFG.ball.content.image;
+      img.alt = '';
+      ball.appendChild(img);
+    } else {
+      ball.textContent = CFG.ball.glyph;
+    }
+    /* 坐标：优先用上次拖到的位置（夹回视口），否则按当前视口算默认位。
+       不依赖容器被拉伸，也不依赖 bottom/env 的解析。 */
     {
       const docEl = HOST.doc.documentElement || {};
       const vw = HOST.win.innerWidth || docEl.clientWidth || 360;
       const vh = HOST.win.innerHeight || docEl.clientHeight || 640;
-      ball.style.left = `${Math.max(8, Math.min(12, vw - CFG.ball.size - 14))}px`;
-      ball.style.top = `${Math.max(8, vh - 96 - CFG.ball.size - 8)}px`;
+      const def = {
+        x: Math.max(8, Math.min(12, vw - CFG.ball.size - 14)),
+        y: Math.max(8, vh - 96 - CFG.ball.size - 8),
+      };
+      const p = clampBall(readLS(LS.ball, null), def, CFG.ball.size, vw, vh);
+      ball.style.left = p.x + 'px';
+      ball.style.top = p.y + 'px';
     }
     ball.addEventListener('click', () => {
+      /* 刚拖完的那一下 pointerup 之后会跟一个 click：别把它当成"点开面板" */
+      if (ballMoved) { ballMoved = false; return; }
       state.open = !state.open;
       writeLS(LS.open, state.open);
       render();
     });
     root.appendChild(ball);
+    /* 球自己也能拖（窗口那个是标题栏上的 makeDraggable，两者坐标分开存） */
+    makeDraggable(ball, ball, LS.ball, () => { ballMoved = true; });
     if (!state.open) return;
 
     /* 窗 */
@@ -1435,17 +1494,42 @@
   /* ── 拖动 / 缩放 ────────────────────────────────────────────────── */
   /* 指针监听只挂一次。之前每次 render() 都往 window 上再挂两个 pointermove/pointerup，
      拖一会儿就堆上百个监听器。 */
-  const gesture = { mode: null, target: null, sx: 0, sy: 0, ox: 0, oy: 0, ow: 0, oh: 0 };
+  const gesture = { mode: null, target: null, sx: 0, sy: 0, ox: 0, oy: 0, ow: 0, oh: 0, storeKey: null, moved: false, onDrag: null };
   let gestureBound = false;
+  /** 球刚被拖过：随后的那次 click 不该被当成"点开面板" */
+  let ballMoved = false;
+
+  /** 球的坐标夹回视口（存的坐标可能是别的视口留下的——手机上会整个跑出屏幕） */
+  function clampBall(stored, def, size, vw, vh) {
+    const x = stored && Number.isFinite(stored.x) ? stored.x : def.x;
+    const y = stored && Number.isFinite(stored.y) ? stored.y : def.y;
+    return {
+      x: Math.round(Math.max(4, Math.min(vw - size - 4, x))),
+      y: Math.round(Math.max(4, Math.min(vh - size - 4, y))),
+    };
+  }
 
   function bindGestureOnce() {
     if (gestureBound) return;
     gestureBound = true;
+    /* Ctrl+Shift+F：整块隐藏 / 恢复。藏起来之后球也没了，所以必须留一个键盘出口，
+       否则"隐藏"就等于把自己关在门外（只能靠控制台）。 */
+    HOST.doc.addEventListener('keydown', (e) => {
+      if (!e.ctrlKey || !e.shiftKey) return;
+      if (!(e.key === 'F' || e.key === 'f')) return;
+      e.preventDefault();
+      state.hidden = !state.hidden;
+      if (!state.hidden) state.open = true;
+      if (state.persistHidden) writeLS(LS.hidden, state.hidden);
+      render();
+    });
     HOST.win.addEventListener('pointermove', (e) => {
       if (!gesture.mode || !gesture.target) return;
       if (gesture.mode === 'drag') {
         const x = Math.max(4, Math.min(HOST.win.innerWidth - 80, gesture.ox + e.clientX - gesture.sx));
         const y = Math.max(4, Math.min(HOST.win.innerHeight - 40, gesture.oy + e.clientY - gesture.sy));
+        /* 挪过 3px 就算"拖过"，用来把拖动和点击分开（球上这两个手势撞在一起） */
+        if (Math.abs(e.clientX - gesture.sx) + Math.abs(e.clientY - gesture.sy) > 3) gesture.moved = true;
         gesture.target.style.left = x + 'px';
         gesture.target.style.top = y + 'px';
         gesture.target.style.right = 'auto';
@@ -1459,21 +1543,28 @@
     HOST.win.addEventListener('pointerup', () => {
       if (gesture.mode && gesture.target) {
         const r = gesture.target.getBoundingClientRect();
-        if (gesture.mode === 'drag') writeLS(LS.pos, { x: Math.round(r.left), y: Math.round(r.top) });
+        /* 落盘的键由发起拖动的那个元素决定：窗口是 LS.pos，悬浮球是 LS.ball */
+        if (gesture.mode === 'drag') writeLS(gesture.storeKey || LS.pos, { x: Math.round(r.left), y: Math.round(r.top) });
         else writeLS(LS.size, { w: Math.round(r.width), h: Math.round(r.height) });
+        if (gesture.moved && gesture.onDrag) { try { gesture.onDrag(); } catch { /* 忽略 */ } }
       }
       gesture.mode = null;
       gesture.target = null;
+      gesture.moved = false;
+      gesture.onDrag = null;
     });
   }
 
-  function makeDraggable(win, handle) {
+  function makeDraggable(win, handle, storeKey = LS.pos, onDrag = null) {
     bindGestureOnce();
     handle.addEventListener('pointerdown', (e) => {
       if (e.target.classList && e.target.classList.contains('fp-icon')) return;
       const r = win.getBoundingClientRect();
       gesture.mode = 'drag';
       gesture.target = win;
+      gesture.storeKey = storeKey;
+      gesture.onDrag = onDrag;
+      gesture.moved = false;
       gesture.sx = e.clientX; gesture.sy = e.clientY;
       gesture.ox = r.left; gesture.oy = r.top;
       handle.setPointerCapture?.(e.pointerId);
@@ -1520,17 +1611,42 @@
     close: () => { state.open = false; writeLS(LS.open, false); render(); },
     /** 卡住了就调这个：清掉存的位置/尺寸/开关状态，并把面板拉回默认样子。 */
     reset() {
-      ['_pos_v1', '_size_v1', '_open_v1', '_expanded_v1', '_collapsed_v1', '_night_v1'].forEach((suffix) => {
+      ['_pos_v1', '_size_v1', '_open_v1', '_expanded_v1', '_collapsed_v1', '_night_v1', '_ball_v1', '_hidden_v1'].forEach((suffix) => {
         try { localStorage.removeItem(ID + suffix); } catch { /* 忽略 */ }
       });
       state.open = true;
       state.collapsed = false;
+      state.hidden = false;
+      state.persistHidden = false;
       state.expanded = new Set();
       state.bodyEl = null;
       try { HOST.doc.getElementById(ID + '-root')?.remove(); } catch { /* 忽略 */ }
       render();
       return '已重置：位置/尺寸/开关状态都恢复默认';
     },
+    /* ── 整块隐藏（连球一起藏）──────────────────────────────────────
+       默认**不落盘**：刷新就回来。想让"隐藏"一直记住，显式 persistHidden(true)。
+       恢复手段三条：Ctrl+Shift+F、控制台 __FANO_PANEL__.show()、或 persistHidden(false) 后刷新。 */
+    hide() {
+      state.hidden = true;
+      if (state.persistHidden) writeLS(LS.hidden, true);
+      render();
+      return '已隐藏（Ctrl+Shift+F 或 __FANO_PANEL__.show() 恢复）';
+    },
+    show() {
+      state.hidden = false;
+      state.open = true;
+      if (state.persistHidden) writeLS(LS.hidden, false);
+      render();
+      return '已显示';
+    },
+    /** 要"刷新也保持隐藏"就传 true；传 false 恢复成"只在本次会话有效" */
+    persistHidden(v) {
+      state.persistHidden = !!v;
+      try { if (v) writeLS(LS.hidden, !!state.hidden); else localStorage.removeItem(LS.hidden); } catch { /* 忽略 */ }
+      return state.persistHidden ? '隐藏状态会记住（刷新也保持）' : '隐藏状态只在本次会话有效';
+    },
+    isHidden: () => !!state.hidden,
     groups: GROUPS,
     thinkingTags: THINKING_TAGS,
     /** 手机上看不见面板时，让用户把这段结果发我，一眼就能定位是哪一种情况。 */
@@ -1560,7 +1676,9 @@
         launchInDom,
         mountedOn: rootEl && rootEl.parentNode === HOST.doc.documentElement ? 'documentElement' : 'body',
         placement: state.lastPlacement,
-        stored: { pos: readLS(LS.pos, null), size: readLS(LS.size, null) },
+        stored: { pos: readLS(LS.pos, null), size: readLS(LS.size, null), ball: readLS(LS.ball, null), hidden: readLS(LS.hidden, null) },
+        hidden: { now: !!state.hidden, persisted: !!state.persistHidden },
+        ball: { shape: CFG.ball.shape, kind: CFG.ball.content.kind, size: CFG.ball.size },
       };
     },
     destroy() {

@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { need } from './lib/fixtures.mjs';
+import { need, isSynthetic, noteFixtureMode } from './lib/fixtures.mjs';
 
 /* 夹具守卫：人造小预设那部分随时可跑，但规模验证要真实样本——它是他人的预设，不入库。 */
 need('Izumi_0914.json', 'GUI 内核测试（331 项，含真实预设的规模验证）');
@@ -193,9 +193,21 @@ console.log('\n[8] 真实预设：Izumi_0914.json');
   const json = JSON.parse(raw);
   const frozen = JSON.stringify(json.prompts[3]);
   const m = PP.parsePreset(json, 'Izumi_0914.json', Buffer.byteLength(raw, 'utf8'));
-  ok('条目数 226', m.counts.prompts === 226, String(m.counts.prompts));
-  ok('在提示词列表里的条目 192', m.counts.listed === 192, String(m.counts.listed));
-  ok('初始开启 60', m.counts.enabled === 60, String(m.counts.enabled));
+  /* 这一节的数字原本是**真实 Izumi 的规模**（226 条 / 192 条在列表里 / 60 条开启 / 30 条正则）。
+     跑合成夹具时这些数字没有意义，但**断言的意思仍然成立**——"解析不丢条目、列表与开关
+     读得对、正则与脚本都认得出"。所以这里换成按夹具本身重算基准，而不是把它放过去。
+     分辨依据是夹具顶层的 __synthFixture 标记（见 tools/make-fixture.mjs）。 */
+  const SYNTH = isSynthetic('Izumi_0914.json');
+  const listedIds = new Set((json.prompt_order?.[0]?.order ?? []).map((o) => o.identifier));
+  const expPrompts = SYNTH ? (json.prompts ?? []).length : 226;
+  const expListed = SYNTH ? (json.prompts ?? []).filter((p) => listedIds.has(p.identifier)).length : 192;
+  const expEnabled = SYNTH ? (json.prompt_order?.[0]?.order ?? []).filter((o) => o.enabled).length : 60;
+  const expRegex = SYNTH ? ((json.extensions?.regex_scripts ?? []).length) : 30;
+  const expScripts = SYNTH ? ((json.extensions?.tavern_helper?.scripts ?? []).length) : 1;
+  if (SYNTH) noteFixtureMode('[8] 真实预设一节');
+  ok(`条目数 ${expPrompts}`, m.counts.prompts === expPrompts, String(m.counts.prompts));
+  ok(`在提示词列表里的条目 ${expListed}`, m.counts.listed === expListed, String(m.counts.listed));
+  ok(`初始开启 ${expEnabled}`, m.counts.enabled === expEnabled, String(m.counts.enabled));
   ok('变量 ≥ 90', m.variables.length >= 90, String(m.variables.length));
   ok('检出悬空变量', m.variables.some((v) => v.dangling),
     m.variables.filter((v) => v.dangling).map((v) => v.name).join('、'));
@@ -203,8 +215,8 @@ console.log('\n[8] 真实预设：Izumi_0914.json');
     String(m.variables.filter((v) => v.exclusive).length));
   ok('识别出 konatan 标签族', m.tagFamilies.some((f) => f.id === 'konatan'));
   ok('识别出 tucao 标签族', m.tagFamilies.some((f) => f.id === 'tucao'));
-  ok('有内嵌脚本 1 个', m.scripts.length === 1, String(m.scripts.length));
-  ok('有正则 30 条', m.regexes.length === 30, String(m.regexes.length));
+  ok(`有内嵌脚本 ${expScripts} 个`, m.scripts.length === expScripts, String(m.scripts.length));
+  ok(`有正则 ${expRegex} 条`, m.regexes.length === expRegex, String(m.regexes.length));
   ok('给出分组建议', m.suggestions.length >= 10, String(m.suggestions.length));
   ok('没修改解析前的 json', JSON.stringify(json.prompts[3]) === frozen);
 
@@ -228,7 +240,7 @@ console.log('\n[8] 真实预设：Izumi_0914.json');
   ok('{{user}} 被替换', r.text.includes('Master'));
   ok('注入位占位块存在', r.segments.some((s) => (s.note || '').includes('注入位')));
   ok(`拼装在 300ms 内完成（实测 ${ms}ms）`, ms < 300);
-  ok('只读：拼装不改原模型', m.counts.enabled === 60);
+  ok('只读：拼装不改原模型', m.counts.enabled === expEnabled, String(m.counts.enabled));
 }
 
 /* ── 9. M2 体检：每条不变式都得真的会响 ────────────────────────── */
@@ -429,7 +441,9 @@ console.log('\n[11] M3 框架编辑器：只改结构，别人的正文一个字
       JSON.stringify(out.prompt_order[0].order) === JSON.stringify(json.prompt_order[0].order));
     ok('空编辑时顶层字段数不变', Object.keys(out).length === Object.keys(json).length);
     const v = PE.verifySourceIntact(json, edit, m, PP.fingerprint);
-    ok('来源完整性自证：226 条全部核查通过', v.checked === 226 && v.changed.length === 0,
+    /* 核查条数 = 这份源预设的条目数（真实 Izumi 是 226；合成夹具按它自己的条目数） */
+    const expChecked = (json.prompts ?? []).length;
+    ok(`来源完整性自证：${expChecked} 条全部核查通过`, v.checked === expChecked && v.changed.length === 0,
       `查了 ${v.checked} 条，异常 ${v.changed.length} 条`);
   }
 
@@ -503,7 +517,8 @@ console.log('\n[11] M3 框架编辑器：只改结构，别人的正文一个字
       out.prompt_order[0].order[0].identifier === m.entries.find((e) => PE.keyOf(e) === second).identifier);
     ok('未列入的条目被加进列表了',
       out.prompt_order[0].order.some((o) => o.identifier === un.identifier));
-    ok('prompts 数组长度 = 226 - 1 + 2', out.prompts.length === 227, String(out.prompts.length));
+    const baseLen = (json.prompts ?? []).length;
+    ok(`prompts 数组长度 = ${baseLen} - 1 + 2`, out.prompts.length === baseLen + 1, String(out.prompts.length));
     ok('顶层其它字段没被动', Object.keys(out).length === Object.keys(json).length
       && JSON.stringify(out.extensions) === JSON.stringify(json.extensions));
     const v = PE.verifySourceIntact(json, edit, m, PP.fingerprint);

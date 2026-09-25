@@ -51,11 +51,14 @@
      曾经因为这儿没有 title，`patchConfig(src, { ball: { size: 60 } })` 这种"只改一个字段"的调用
      会把 CONFIG.title 整条抹掉，面板于是回退到源码里那句兜底标题（"🌸 芳乃 · 预设面板"）。
      要改配置请用 `patchConfig(src, mergeConfig(extractConfig(src), 你的改动))`，或者把整份配置展开传进来。 */
+  /** 允许的球形状（与面板源码 panel-core.js 里的 BALL_SHAPES 保持一致，写错退回圆形） */
+  const BALL_SHAPES = ['circle', 'square', 'rounded', 'diamond', 'triangle', 'hexagon'];
+
   const DEFAULT_CONFIG = {
     version: 1,
     title: '',
     tokens: { day: {}, night: {} },
-    ball: { size: 46, glyph: '芳' },
+    ball: { size: 46, glyph: '芳', shape: 'circle', content: { kind: 'text', image: '' } },
     window: { w: 380, h: 620, minW: 260, minH: 200, maxW: 0, maxH: 0 },
     layout: { radius: 14, scale: 1, fontScale: 1, opacity: 1, blur: 14 },
     wallpaper: { url: '', fit: 'cover', opacity: 0.35, blur: 0, dim: 0.15, dimColor: '#000000' },
@@ -243,6 +246,11 @@
       ball: {
         size: Math.round(num(c.ball.size, 46, 28, 96)),
         glyph: String(c.ball.glyph ?? '芳').slice(0, 3) || '芳',
+        shape: BALL_SHAPES.includes(c.ball.shape) ? c.ball.shape : 'circle',
+        content: {
+          kind: c.ball.content && c.ball.content.kind === 'image' && String(c.ball.content.image ?? '').trim() ? 'image' : 'text',
+          image: String((c.ball.content && c.ball.content.image) ?? ''),
+        },
       },
       window: {
         w: Math.round(num(c.window.w, 380, 200, 4000)),

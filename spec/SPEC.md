@@ -335,11 +335,14 @@ node tools/check-browser.mjs   # 真浏览器布局（37 项，需更宽权限�
 诊断工具（排查用）：
 
 ```bash
-node tools/diag-slots.mjs      # 哪些内置槽位条目被塞进了破甲骨架（锚点回归检查）
-node tools/diag-think.mjs      # 思维链相关条目的开关状态 + 标签分布
-node tools/diag-cot.mjs        # ICOT/COT 全文与分段计数
-node tools/diag-tail.mjs       # 预填充尾部的实际内容
+node tools/diag-checkup.mjs [文件.json …]   # M2 体检清单（默认拿 Izumi / 成品预设当反例）
+node tools/diag-skeleton.mjs                # 骨架各模块的 token 占比
 ```
+
+> 早先这里还有一批 `diag-slots / diag-think / diag-cot / diag-tail / diag-order …` 一次性脚本，
+> 它们全都写死读那三份第三方源预设，在公开仓库里**跑起来就报错**（违反"宁可不带，
+> 也不带一个跑起来就报错的脚本"）。已在 v2.9 一并删除；要翻旧账见 git 历史：
+> `git log --diff-filter=D --name-only`，或 `git checkout <旧提交> -- tools/diag-slots.mjs`。
 
 ## 9. 待办与风险
 

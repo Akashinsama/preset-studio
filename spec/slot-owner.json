@@ -1,0 +1,15 @@
+{
+  "$comment": "每个酒馆内置槽位由谁当主人（写法 来源键:条目名）。落败者降级为普通条目。build-preset.mjs 与 tools/make-fixture.mjs 共用这一份，避免两处各写一遍后漂移。",
+  "main": "Kemini:💠CLEAR",
+  "jailbreak": "Kemini:💠continue",
+  "nsfw": "Izumi:信息结束",
+  "chatHistory": "Kemini:Chat History",
+  "dialogueExamples": "Kemini:Chat Examples",
+  "charDescription": "Kemini:💠Char Description",
+  "charPersonality": "Kemini:💠Char Personality",
+  "worldInfoBefore": "Kemini:💠↑Char",
+  "worldInfoAfter": "Kemini:💠↓Char",
+  "personaDescription": "Kemini:💠Persona Description",
+  "scenario": "Kemini:💠Scenario",
+  "enhanceDefinitions": "Izumi:🤔同人增强-二选一"
+}

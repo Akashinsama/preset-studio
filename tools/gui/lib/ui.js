@@ -40,6 +40,7 @@
     rev: 0,               // 编辑态版本号，用来缓存派生模型
     entryFilter: 'listed',
     entryQuery: '',
+    entryEdit: null,      // 条目浏览页里"正在就地编辑正文"的那一条（idx）；null = 都没展开
   };
 
   /** 不能在编辑器里删掉的槽位（从体检器的 ANCHORS 拿，避免两处定义） */
@@ -848,15 +849,44 @@
         ]),
         h('div', { class: 'card' }, table([
           { label: '#', num: true }, { label: '条目名' }, { label: '槽位' }, { label: 'role' }, { label: '状态' }, { label: '长度', num: true }, { label: '正文开头' },
-        ], list.map((e) => [
-          String(e.listed ? e.orderIndex : '—'),
-          e.name || '(无名)',
-          e.slot ? h('span', { class: 'pill slot', text: e.slotLabel }) : '',
-          e.role + (e.systemPrompt ? ' /sys' : ''),
-          h('span', { class: 'pill ' + (e.enabled ? 'on' : 'off'), text: e.enabled ? '开' : '关' }),
-          fmt(e.chars),
-          h('span', { class: 'mono dim', text: e.head }),
-        ]))),
+        ], list.map((e) => {
+          /* 点条目名就地编辑正文：走 M3 同一条路（PE.setContent），
+             所以"已改"标记、导出、来源自证、一键还原全都自动一致，不新增第二套状态。 */
+          const editing = state.entryEdit === e.idx;
+          const editable = PE.canEditContent(state.edit, e.idx);
+          const changed = state.edit.content.has(e.idx);
+          const head = editing
+            ? h('div', {}, [
+              h('textarea', {
+                class: 'bigtext small mono', rows: 6, spellcheck: 'false',
+                value: PE.contentOf(state.edit, preset().json, e.idx),
+                onchange: (ev) => { PE.setContent(state.edit, preset().json, e.idx, ev.target.value); state.rev++; renderAll(); },
+              }),
+              h('div', { class: 'buildbar' }, [
+                h('button', {
+                  class: 'btn tiny ghost', text: '还原成导入时的原文',
+                  onclick: () => { PE.revertContent(state.edit, preset().json, e.idx); state.rev++; renderAll(); banner('已还原成导入时的原文。', 'ok'); },
+                }),
+                h('span', { class: 'dim', text: '改完点别处即生效；导出的就是改过的版本' }),
+              ]),
+            ])
+            : h('span', { class: 'mono dim', text: e.head });
+          return [
+            String(e.listed ? e.orderIndex : '—'),
+            editable
+              ? h('span', {
+                class: 'mono', style: { cursor: 'pointer', textDecoration: 'underline dotted' },
+                title: editing ? '收起' : '点开就地编辑正文',
+                onclick: () => { state.entryEdit = editing ? null : e.idx; renderAll(); },
+              }, [(e.name || '(无名)'), changed ? h('span', { class: 'pill warn', text: '已改' }) : null])
+              : (e.name || '(无名)'),
+            e.slot ? h('span', { class: 'pill slot', text: e.slotLabel }) : '',
+            e.role + (e.systemPrompt ? ' /sys' : ''),
+            h('span', { class: 'pill ' + (e.enabled ? 'on' : 'off'), text: e.enabled ? '开' : '关' }),
+            fmt(e.chars),
+            head,
+          ];
+        }))),
       ];
     },
 
@@ -1790,13 +1820,64 @@
           h('div', { class: 'kpis' }, [
             numField('直径 px', B.size, { min: 28, max: 96 }, (v) => { cfg.ball.size = v; }, '手机上建议 ≥40'),
             h('label', { class: 'numfield' }, [
+              h('span', { text: '形状' }),
+              h('select', {
+                onchange: (ev) => { cfg.ball.shape = ev.target.value; bump(); },
+              }, [
+                ['circle', '圆形'], ['square', '方形'], ['rounded', '圆角方'],
+                ['diamond', '菱形'], ['triangle', '三角形'], ['hexagon', '六边形'],
+              ].map(([v, label]) => h('option', { value: v, selected: B.shape === v, text: label }))),
+            ]),
+            h('label', { class: 'numfield' }, [
+              h('span', { text: '球上是' }),
+              h('select', {
+                onchange: (ev) => { cfg.ball.content.kind = ev.target.value; bump(); },
+              }, [
+                ['text', '字'], ['image', '图片'],
+              ].map(([v, label]) => h('option', { value: v, selected: B.content.kind === v, text: label }))),
+            ]),
+            h('label', { class: 'numfield' }, [
               h('span', { text: '球上的字' }),
               h('input', {
                 type: 'text', class: 'nameinput', value: B.glyph, style: { width: '70px' },
                 onchange: (ev) => { cfg.ball.glyph = ev.target.value; bump(); },
               }),
             ]),
+            h('label', { class: 'numfield' }, [
+              h('span', { text: '球上的图（本机图片）' }),
+              h('input', {
+                type: 'file', accept: 'image/*',
+                onchange: (ev) => {
+                  const f = ev.target.files && ev.target.files[0];
+                  ev.target.value = '';
+                  if (!f) return;
+                  const fr = new FileReader();
+                  fr.onload = () => {
+                    const img = new Image();
+                    img.onload = () => {
+                      /* 缩到 ≤128px 再转 data URI：球最大 96px，128 够清晰又省体积 */
+                      const k = Math.min(1, 128 / Math.max(img.width, img.height));
+                      const cv = document.createElement('canvas');
+                      cv.width = Math.max(1, Math.round(img.width * k));
+                      cv.height = Math.max(1, Math.round(img.height * k));
+                      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+                      const uri = cv.toDataURL('image/png');
+                      cfg.ball.content = { kind: 'image', image: uri };
+                      const kb = Math.round(uri.length / 1024);
+                      banner(`球上图片已换：${cv.width}×${cv.height}，写进预设约 ${kb}KB（原图 ${Math.round(f.size / 1024)}KB）。`
+                        + '图片是**本机那张压进预设的**，不依赖外网。', kb > 300 ? 'err' : 'ok');
+                      bump();
+                    };
+                    img.onerror = () => banner('这张图读不出来，换一张试试。', 'err');
+                    img.src = String(fr.result);
+                  };
+                  fr.onerror = () => banner('读文件失败。', 'err');
+                  fr.readAsDataURL(f);
+                },
+              }),
+            ]),
           ]),
+          h('p', { class: 'viewdesc', text: '形状六种；球上可以放字或图片。图片走"本机图 → 压到 128px → 写进预设"这条自包含路线（不依赖外网），代价是预设体积里多几十 KB。球在酒馆里可拖动、Ctrl+Shift+F 整块隐藏（隐藏默认不落盘，刷新就回来）。' }),
       ]));
       left.push(h('div', { class: 'card' }, [
           h('h3', { text: '窗口' }),
@@ -2770,7 +2851,20 @@
 
     return h('div', { class: 'fp-root', 'data-theme': A.night ? 'night' : 'day' }, [
       style,
-      h('div', { class: 'fp-launch', text: clamped.ball.glyph }),
+      (() => {
+        /* 预览里的球要跟真面板一个样子：形状靠内联样式（预览页没有面板那套 CSS），图片铺满球 */
+        const b = clamped.ball;
+        const SHAPE = {
+          circle: { borderRadius: '50%' }, square: { borderRadius: '2px' }, rounded: { borderRadius: '26%' },
+          diamond: { clipPath: 'polygon(50% 0,100% 50%,50% 100%,0 50%)' },
+          triangle: { clipPath: 'polygon(50% 4%,98% 94%,2% 94%)' },
+          hexagon: { clipPath: 'polygon(25% 4%,75% 4%,100% 50%,75% 96%,25% 96%,0 50%)' },
+        };
+        const kids = b.content.kind === 'image' && b.content.image
+          ? [h('img', { class: 'fp-ball-img', src: b.content.image, style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })]
+          : [b.glyph];
+        return h('div', { class: 'fp-launch', style: SHAPE[b.shape] || SHAPE.circle }, kids);
+      })(),
       win,
     ]);
   }
@@ -2988,7 +3082,20 @@
 
     return h('div', { class: 'fp-root', 'data-theme': A.night ? 'night' : 'day' }, [
       style,
-      h('div', { class: 'fp-launch', text: clamped.ball.glyph }),
+      (() => {
+        /* 预览里的球要跟真面板一个样子：形状靠内联样式（预览页没有面板那套 CSS），图片铺满球 */
+        const b = clamped.ball;
+        const SHAPE = {
+          circle: { borderRadius: '50%' }, square: { borderRadius: '2px' }, rounded: { borderRadius: '26%' },
+          diamond: { clipPath: 'polygon(50% 0,100% 50%,50% 100%,0 50%)' },
+          triangle: { clipPath: 'polygon(50% 4%,98% 94%,2% 94%)' },
+          hexagon: { clipPath: 'polygon(25% 4%,75% 4%,100% 50%,75% 96%,25% 96%,0 50%)' },
+        };
+        const kids = b.content.kind === 'image' && b.content.image
+          ? [h('img', { class: 'fp-ball-img', src: b.content.image, style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })]
+          : [b.glyph];
+        return h('div', { class: 'fp-launch', style: SHAPE[b.shape] || SHAPE.circle }, kids);
+      })(),
       win,
     ]);
   }

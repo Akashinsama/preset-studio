@@ -9,11 +9,12 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { need } from './lib/fixtures.mjs';
+import { needReal } from './lib/fixtures.mjs';
 
-/* 夹具守卫：本仓库不随附任何预设正文（见 NOTICE.md / samples/README.md）。
-   缺了就打印 SKIP 并正常退出；DSH_REQUIRE_FIXTURES=1 时视为失败。 */
-need('Izumi_0914.json', '分组规格生成（拿它当样本推断模块）');
+/* 夹具守卫：这个脚本的产物 spec/groups.json 是**进库的结构规格**，
+   所以它只接受真实预设——合成夹具（tools/make-fixture.mjs 造的占位数据）
+   会把规格反推歪，而且表面上一切正常。见 tools/lib/fixtures.mjs 的 needReal。 */
+needReal('Izumi_0914.json', '分组规格生成（产物进库，必须用真实预设）');
 
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, 'spec');

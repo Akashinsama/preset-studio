@@ -56,21 +56,11 @@ const BUILDIN_IDS = new Set([
   'enhanceDefinitions', 'agentSystemPrompt', 'agentTask', 'agentResults',
 ]);
 
-/** 每个内置槽位由谁当主人（来源:名字）。落败者降级为普通条目。 */
-const SLOT_OWNER = {
-  main: 'Kemini:💠CLEAR',
-  jailbreak: 'Kemini:💠continue',
-  nsfw: 'Izumi:信息结束',
-  chatHistory: 'Kemini:Chat History',
-  dialogueExamples: 'Kemini:Chat Examples',
-  charDescription: 'Kemini:💠Char Description',
-  charPersonality: 'Kemini:💠Char Personality',
-  worldInfoBefore: 'Kemini:💠↑Char',
-  worldInfoAfter: 'Kemini:💠↓Char',
-  personaDescription: 'Kemini:💠Persona Description',
-  scenario: 'Kemini:💠Scenario',
-  enhanceDefinitions: 'Izumi:🤔同人增强-二选一',
-};
+/** 每个内置槽位由谁当主人（来源:名字）。落败者降级为普通条目。
+    表放在 spec/ 里，因为合成夹具生成器（tools/make-fixture.mjs）也要照着它造结构——
+    两处各写一遍迟早漂移，到时候"成品能装、夹具装不上"会很难查。 */
+const SLOT_OWNER = JSON.parse(fs.readFileSync(P('spec', 'slot-owner.json'), 'utf8'));
+delete SLOT_OWNER.$comment;
 
 /* ── 读入 ─────────────────────────────────────────────────────────── */
 const src = {};
