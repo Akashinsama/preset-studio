@@ -1,0 +1,121 @@
+[
+  {
+    "disabled": false,
+    "runOnEdit": true,
+    "trimStrings": [],
+    "placement": [
+      2
+    ],
+    "substituteRegex": 0,
+    "scriptName": "芳乃正文 · 清格式残骸",
+    "findRegex": "/<Output_format>[\\s\\S]*?<\\/Output_format>\\s*|<\\/?content>\\s*|\\{\\{getvar::[^}]*\\}\\}/gi",
+    "replaceString": "",
+    "markdownOnly": true,
+    "promptOnly": false,
+    "id": "fano-fmt-strip",
+    "minDepth": null,
+    "maxDepth": null
+  },
+  {
+    "disabled": false,
+    "runOnEdit": true,
+    "trimStrings": [],
+    "placement": [
+      2
+    ],
+    "substituteRegex": 0,
+    "scriptName": "芳乃正文 · 吐槽气泡",
+    "findRegex": "/<tucao>([\\s\\S]*?)<\\/tucao>\\s*/gi",
+    "replaceString": "<div style=\"margin:11px 0;padding:9px 13px 10px;border-radius:2px 12px 12px 2px;border-left:3px solid rgba(212,87,127,.78);background:linear-gradient(100deg,rgba(212,87,127,.14),rgba(212,87,127,.045));line-height:1.75;white-space:pre-wrap;word-break:break-word\"><span style=\"display:inline-block;margin:0 8px 0 0;padding:1px 9px;border-radius:99px;background:rgba(212,87,127,.86);color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;vertical-align:1px;white-space:nowrap\">小此吐槽</span>$1</div>",
+    "markdownOnly": true,
+    "promptOnly": false,
+    "id": "fano-tucao-card",
+    "minDepth": null,
+    "maxDepth": null
+  },
+  {
+    "disabled": false,
+    "runOnEdit": true,
+    "trimStrings": [],
+    "placement": [
+      2
+    ],
+    "substituteRegex": 0,
+    "scriptName": "芳乃正文 · 现实闲聊",
+    "findRegex": "/<konatan_chat>([\\s\\S]*?)<\\/konatan_chat>\\s*/gi",
+    "replaceString": "<div style=\"margin:12px 0 4px;padding:10px 14px 11px;border-radius:12px;border:1px solid rgba(96,125,190,.34);background:linear-gradient(100deg,rgba(96,125,190,.13),rgba(96,125,190,.045));line-height:1.75;white-space:pre-wrap;word-break:break-word\"><span style=\"display:inline-block;margin:0 8px 0 0;padding:1px 9px;border-radius:99px;background:rgba(96,125,190,.86);color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;vertical-align:1px;white-space:nowrap\">现实时间</span>$1</div>",
+    "markdownOnly": true,
+    "promptOnly": false,
+    "id": "fano-chat-card",
+    "minDepth": null,
+    "maxDepth": null
+  },
+  {
+    "disabled": false,
+    "runOnEdit": true,
+    "trimStrings": [],
+    "placement": [
+      2
+    ],
+    "substituteRegex": 0,
+    "scriptName": "芳乃防截断 · 清内层块",
+    "findRegex": "/<(?:disclaimer|Reference_Example)>[\\s\\S]*?<\\/(?:disclaimer|Reference_Example)>\\s*/gi",
+    "replaceString": "",
+    "markdownOnly": true,
+    "promptOnly": true,
+    "id": "fano-armor-strip-inner",
+    "minDepth": null,
+    "maxDepth": null
+  },
+  {
+    "disabled": false,
+    "runOnEdit": true,
+    "trimStrings": [],
+    "placement": [
+      2
+    ],
+    "substituteRegex": 0,
+    "scriptName": "芳乃防截断 · 清外层容器",
+    "findRegex": "/<(?:disclaimer_format|Reference_Example_format)>[\\s\\S]*?<\\/(?:disclaimer_format|Reference_Example_format)>\\s*/gi",
+    "replaceString": "",
+    "markdownOnly": true,
+    "promptOnly": true,
+    "id": "fano-armor-strip-outer",
+    "minDepth": null,
+    "maxDepth": null
+  },
+  {
+    "disabled": false,
+    "runOnEdit": true,
+    "trimStrings": [],
+    "placement": [
+      2
+    ],
+    "substituteRegex": 0,
+    "scriptName": "芳乃选项栏 · 卡片（可点击 · 任意选项数 · 仅显示）",
+    "findRegex": "/<options>([\\s\\S]*?)<\\/options>\\s*/gi",
+    "replaceString": "```html\n<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<style>\n:root{--fo-bg:#fff7fa;--fo-bg2:#fdeef4;--fo-line:#f2dbe6;--fo-text:#3b2c38;--fo-acc:#d4577f;--fo-acc2:#ef83a7;--fo-mut:#8b7684}\nhtml.fo-dark{--fo-bg:#17131c;--fo-bg2:#221b28;--fo-line:#372c40;--fo-text:#f4eaf1;--fo-acc:#e884a9;--fo-acc2:#ffa3c3;--fo-mut:#b09aab}\n*{box-sizing:border-box}\nbody{margin:0;padding:4px;background:transparent;font-family:system-ui,-apple-system,\"Segoe UI\",\"Noto Sans SC\",sans-serif}\n.fo-c{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:14px;background:linear-gradient(160deg,var(--fo-bg),var(--fo-bg2));border:1px solid var(--fo-line)}\n.fo-h{display:flex;align-items:center;justify-content:space-between;gap:8px}\n.fo-t{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--fo-acc)}\n.fo-x{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--fo-mut)}\n.fo-b{cursor:pointer;border:1px solid var(--fo-line);border-radius:99px;padding:1px 7px;background:transparent;color:inherit;font:inherit;line-height:1.4}\n.fo-list{display:flex;flex-direction:column;gap:6px}\n.fo-n{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border-radius:10px;background:var(--fo-bg);border:1px solid var(--fo-line);cursor:pointer;transition:border-color .15s,transform .15s}\n.fo-n:hover{border-color:var(--fo-acc2);transform:translateY(-1px)}\n.fo-n i{flex:0 0 auto;width:18px;height:18px;display:grid;place-items:center;border-radius:6px;background:linear-gradient(145deg,var(--fo-acc2),var(--fo-acc));color:#fff;font-size:10px;font-style:normal}\n.fo-n b{flex:1 1 auto;min-width:0;font-weight:600;font-size:13px;line-height:1.55;color:var(--fo-text);overflow-wrap:anywhere}\n.fo-w{flex:0 0 auto;font-size:10px;color:var(--fo-mut);white-space:nowrap}\n.fo-s{font-size:10px;color:var(--fo-mut);min-height:12px;text-align:right}\n</style>\n</head>\n<body>\n<textarea id=\"fo-raw\" style=\"display:none\">$1</textarea>\n<div class=\"fo-c\">\n<div class=\"fo-h\"><span class=\"fo-t\">选一个吧～</span><span class=\"fo-x\"><span id=\"fo-tot\"></span><button class=\"fo-b\" id=\"fo-tg\" type=\"button\">🌙</button></span></div>\n<div class=\"fo-list\" id=\"fo-list\"></div>\n<div class=\"fo-s\" id=\"fo-s\">点一下 = 加到输入框光标处</div>\n</div>\n<script>\n(function(){\n  var KEY=\"fano-opt-night\";\n  function pd(){try{return (window.parent&&window.parent!==window)?window.parent.document:document;}catch(e){return null;}}\n  function boot(){\n    var R=document.documentElement;\n    function hostDark(){var d=pd();if(!d)return false;try{return !!d.querySelector(\"body.dark,.dark,[data-theme=\\\"dark\\\"]\");}catch(e){return false;}}\n    function setDark(v){R.classList.toggle(\"fo-dark\",!!v);var b=document.getElementById(\"fo-tg\");if(b)b.textContent=v?\"☀\":\"🌙\";}\n    var sv=null;try{sv=localStorage.getItem(KEY);}catch(e){}\n    setDark(sv===null?hostDark():sv===\"1\");\n    var tg=document.getElementById(\"fo-tg\");\n    if(tg)tg.addEventListener(\"click\",function(){var v=!R.classList.contains(\"fo-dark\");try{localStorage.setItem(KEY,v?\"1\":\"0\");}catch(e){}setDark(v);});\n    var S=document.getElementById(\"fo-s\"),LIST=document.getElementById(\"fo-list\");\n    var raw=\"\";try{raw=document.getElementById(\"fo-raw\").value||\"\";}catch(e){}\n    var items=[];\n    function push(t){t=String(t||\"\").trim();if(t)items.push(t);}\n    raw.split(/\\r?\\n/).forEach(function(line){var m=/^\\s*>?\\s*选项\\s*[一二三四五六七八九十百零〇0-9]*\\s*[：:]\\s*(.+?)\\s*$/.exec(line);if(m)push(m[1]);});\n    if(!items.length){raw.split(/\\r?\\n/).forEach(function(line){push(line.replace(/^\\s*>+\\s*/,\"\"));});}\n    var tot=0;\n    items.forEach(function(txt,i){\n      var n=document.createElement(\"div\");n.className=\"fo-n\";n.setAttribute(\"data-v\",txt);\n      var badge=document.createElement(\"i\");badge.textContent=String(i+1);\n      var b=document.createElement(\"b\");b.textContent=txt;\n      var w=document.createElement(\"span\");w.className=\"fo-w\";\n      var clean=txt.replace(/\\s/g,\"\");tot+=clean.length;w.textContent=clean.length+\"字\";\n      n.appendChild(badge);n.appendChild(b);n.appendChild(w);\n      n.addEventListener(\"click\",function(){ins(txt);});\n      LIST.appendChild(n);\n    });\n    if(!items.length){var e=document.createElement(\"div\");e.className=\"fo-s\";e.textContent=\"没解析出选项，原文已保留在消息里\";LIST.appendChild(e);}\n    var totEl=document.getElementById(\"fo-tot\");if(totEl)totEl.textContent=(items.length?items.length+\" 项 · \":\"\")+\"共\"+tot+\"字\";\n    function ins(txt){\n      var d=pd();if(!d){S.textContent=\"拿不到酒馆页面（跨域）\";return;}\n      var ta=d.getElementById(\"send_textarea\");if(!ta){S.textContent=\"没找到输入框\";return;}\n      try{ta.focus();}catch(e){}\n      var v=ta.value||\"\",s=ta.selectionStart,e=ta.selectionEnd;\n      if(typeof s!==\"number\"||typeof e!==\"number\"||s>v.length||e>v.length){s=e=v.length;}\n      if(s>e){var t=s;s=e;e=t;}\n      var pre=v.slice(0,s),post=v.slice(e),lead=(pre&&!/\\s$/.test(pre))?\" \":\"\",add=lead+txt+\" \";\n      ta.value=pre+add+post;\n      var p=s+add.length;try{ta.setSelectionRange(p,p);}catch(err){}\n      ta.dispatchEvent(new Event(\"input\",{bubbles:true}));\n      ta.dispatchEvent(new Event(\"change\",{bubbles:true}));\n      S.textContent=\"已加到输入框（光标处）\";\n    }\n  }\n  if(document.readyState===\"loading\")document.addEventListener(\"DOMContentLoaded\",boot);else boot();\n})();\n</script>\n</body>\n</html>\n```",
+    "markdownOnly": true,
+    "promptOnly": false,
+    "id": "fano-options-card",
+    "minDepth": null,
+    "maxDepth": null
+  },
+  {
+    "disabled": false,
+    "runOnEdit": true,
+    "trimStrings": [],
+    "placement": [
+      2
+    ],
+    "substituteRegex": 0,
+    "scriptName": "芳乃选项栏 · 过滤发送",
+    "findRegex": "/<options>[\\s\\S]*?<\\/options>\\s*/gi",
+    "replaceString": "",
+    "markdownOnly": false,
+    "promptOnly": true,
+    "id": "fano-options-strip",
+    "minDepth": null,
+    "maxDepth": null
+  }
+]

@@ -325,6 +325,9 @@ if (tampered.length) {
 
 /* ── 9. extensions ──────────────────────────────────────────────── */
 const thinkChain = JSON.parse(fs.readFileSync(P('preset', 'fano-thinking-chain.json'), 'utf8'));
+/* 另外 7 条正则（正文美化 3 + 防截断过滤 2 + 选项栏 2）：从 v2.8.1 那支原样移植过来，
+   放在 preset/fano-regex-extra.json 当数据。 */
+const extraRegexes = JSON.parse(fs.readFileSync(P('preset', 'fano-regex-extra.json'), 'utf8'));
 const panelCode = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
 
 const base = JSON.parse(fs.readFileSync(P(FILES.Kemini), 'utf8'));
@@ -335,9 +338,10 @@ delete out.prompt_order;
 out.prompts = prompts;
 out.prompt_order = [{ character_id: 100001, order }];
 out.extensions = {
-  /* 统一思维链折叠链：顺序敏感，ST 按数组顺序套用。
-     前两条把"多块"折成 Kemini 形态，后两条把"单块"折成 Izumi 形态。 */
-  regex_scripts: thinkChain,
+  /* 正则顺序敏感，ST 按数组顺序套用：
+     先是移植来的 7 条（正文美化 → 防截断过滤：先内层后外层 → 选项栏），
+     再是思维链折叠链（前两条折多块 Kemini 形态、后两条折单块 Izumi 形态）。 */
+  regex_scripts: [...extraRegexes, ...thinkChain],
   tavern_helper: {
     scripts: [{
       type: 'script',

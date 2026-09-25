@@ -333,11 +333,16 @@ ok('面板脚本已启用', panel?.enabled === true);
 ok('面板脚本里注入了 groups', (panel?.content ?? '').includes('"jailbreak"'));
 ok('面板脚本里含芳乃配色 token', (panel?.content ?? '').includes('--fp-accent'));
 const regexes = ext.regex_scripts ?? [];
-ok('内嵌了统一思维链折叠链（4 条）', regexes.length === 4, `${regexes.length} 条`);
+/* 折叠链那 4 条的位置**不能写死**了：链前面还排着 7 条从 v2.8.1 移植来的正则
+   （正文美化 3 + 防截断过滤 2 + 选项栏 2）。所以这里按**名字**把链挑出来再逐条判，
+   其余那 7 条不适用"折叠文案 / 只改显示"这类断言（选项栏过滤那条本来就是 promptOnly）。 */
+const chain = regexes.filter((r) => /^芳乃思维链 · /.test(String(r.scriptName)));
+ok('内嵌了统一思维链折叠链（4 条）', chain.length === 4, `${chain.length} 条（正则共 ${regexes.length} 条）`);
 ok('折叠链顺序正确（前两条 Kemini 形态，后两条 Izumi 形态）',
-  regexes.slice(0, 2).every((r) => String(r.replaceString).includes('fano_thinking'))
-  && regexes.slice(2).every((r) => String(r.replaceString).includes('konata-thinking-details')));
-for (const r of regexes) {
+  chain.slice(0, 2).every((r) => String(r.replaceString).includes('fano_thinking'))
+  && chain.slice(2).every((r) => String(r.replaceString).includes('konata-thinking-details')));
+ok('移植来的那 7 条也在（正文美化 / 防截断过滤 / 选项栏）', regexes.length === 11, `${regexes.length} 条`);
+for (const r of chain) {
   const sum = (String(r.replaceString).match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/i) || [])[1] ?? '';
   const text = sum.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   ok(`「${r.scriptName}」折叠文案是 芳乃祈福中`, text.includes('芳乃祈福中'), text || '(无 summary)');

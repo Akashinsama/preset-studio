@@ -1629,6 +1629,7 @@
               ' ',
               s.name || '(无名)',
               s.changed ? h('span', { class: 'pill warn', text: `已改：${s.changedFields.map((f) => ({ content: '代码', name: '名字', enabled: '启停' }[f] || f)).join('、')}` }) : null,
+              e.scripts.deleted.has(s.idx) ? h('span', { class: 'pill err', text: '已标记删除·导出时不会带上' }) : null,
             ]),
             h('div', { class: 'addform' }, [
               h('label', { class: 'modrow', style: { border: 'none', padding: '0' } }, [
@@ -1645,6 +1646,21 @@
               h('button', {
                 class: 'btn tiny ghost', text: '复制代码到剪贴板',
                 onclick: () => copyText(s.content, '脚本代码'),
+              }),
+              h('button', {
+                class: 'btn tiny ghost', text: e.scripts.deleted.has(s.idx) ? '取消删除' : '删除这个脚本',
+                title: '导出时不再带上这条脚本（可反悔；面板脚本删掉后就能用「装进这份预设」顶进来）',
+                onclick: () => {
+                  if (e.scripts.deleted.has(s.idx)) {
+                    PE.undeleteScript(e, 's' + s.idx);
+                    banner('已取消删除：这条脚本导出的照旧带上。', 'ok');
+                  } else {
+                    PE.deleteScript(e, 's' + s.idx);
+                    banner(`已标记删除「${s.name || '(无名)'}」——导出的预设里不会再有它（想反悔再点一次）。`
+                      + (s.button && s.button.enabled ? '注意：它带的顶部按钮「⚙」也会一起消失。' : ''), 'warn');
+                  }
+                  bump();
+                },
               }),
               h('button', {
                 class: 'btn tiny ghost', text: '还原这条',
@@ -1771,8 +1787,12 @@
             '颜色（白天/夜间各一套）· 悬浮球大小与字形 · 窗口默认尺寸与上下限 · 圆角 · 字号 · 整体缩放 · 窗口不透明度与磨砂 · 面板壁纸。',
           ]),
           h('div', { style: { marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
-            h('button', { class: 'btn', text: A.source === 'preset' ? '应用到面板脚本' : '记下配置', onclick: applyAppearance }),
-            A.source === 'preset' ? null : h('button', {
+            h('button', { class: 'btn', text: (preset() && PE.panelScriptViews(state.edit, preset().json, preset().model).length) ? '应用到面板脚本' : '记下配置', onclick: applyAppearance }),
+            /* 「装进这份预设」只在**这份预设里真的没有**我们的面板脚本时才给：
+               判定要用实时检测，不能用 A.source——那是"面板外观"状态刚建立时的来源，
+               导入新预设后不会重算，于是会出现"提示让你用『应用到面板脚本』、
+               按钮上却写着『装进这份预设』"这种自相矛盾的界面。 */
+            (preset() && PE.panelScriptViews(state.edit, preset().json, preset().model).length) ? null : h('button', {
               class: 'btn', text: '装进这份预设', title: '把面板脚本写进这份预设的扩展里（之后就能一起导出）',
               onclick: () => { const s = attachPanel(); if (s) banner('已把面板装进预设：外观 + 分组都写进去了。去「导出新预设」生成文件。', 'ok'); },
             }),
@@ -1826,15 +1846,21 @@
               }, [
                 ['circle', '圆形'], ['square', '方形'], ['rounded', '圆角方'],
                 ['diamond', '菱形'], ['triangle', '三角形'], ['hexagon', '六边形'],
-              ].map(([v, label]) => h('option', { value: v, selected: B.shape === v, text: label }))),
+              ].map(([v, label]) => h('option', { value: v, selected: (B.shape || 'circle') === v, text: label }))),
             ]),
             h('label', { class: 'numfield' }, [
               h('span', { text: '球上是' }),
               h('select', {
-                onchange: (ev) => { cfg.ball.content.kind = ev.target.value; bump(); },
+                onchange: (ev) => {
+                  /* B.content 可能不存在（预设里嵌的是旧版面板脚本，那时没有这个字段）——
+                     所以一律从兜底结构上改，避免抛错把整张卡片连同"直径 px"一起弄没。 */
+                  const prev = (B && B.content) || {};
+                  cfg.ball.content = { kind: ev.target.value, image: String(prev.image || '') };
+                  bump();
+                },
               }, [
                 ['text', '字'], ['image', '图片'],
-              ].map(([v, label]) => h('option', { value: v, selected: B.content.kind === v, text: label }))),
+              ].map(([v, label]) => h('option', { value: v, selected: ((B && B.content && B.content.kind) || 'text') === v, text: label }))),
             ]),
             h('label', { class: 'numfield' }, [
               h('span', { text: '球上的字' }),
@@ -2078,7 +2104,7 @@
             h('button', { class: 'btn', text: '按这份预设自动推断', onclick: inferNow }),
             h('button', { class: 'btn ghost', text: '加入所有条目（兜底草稿）', onclick: () => { state.groupsDraft = draftAll(m); markDraftBaseline(); bump(); } }),
             h('button', { class: 'btn ghost', text: '清空草稿（回到面板自带）', onclick: () => { state.groupsDraft = null; state.groupsDraftBaseline = null; bump(); } }),
-            h('button', { class: 'btn', text: A.source === 'preset' ? '应用到面板脚本' : '装进这份预设', onclick: applyGroups }),
+            h('button', { class: 'btn', text: (preset() && PE.panelScriptViews(state.edit, preset().json, preset().model).length) ? '应用到面板脚本' : '装进这份预设', onclick: applyGroups }),
           ]),
           h('div', { class: 'dim', style: { marginTop: '8px' }, text: '应用/装进只替换面板脚本里那段「分组覆盖」，代码一行不动。' }),
         ]),
@@ -2860,7 +2886,8 @@
           triangle: { clipPath: 'polygon(50% 4%,98% 94%,2% 94%)' },
           hexagon: { clipPath: 'polygon(25% 4%,75% 4%,100% 50%,75% 96%,25% 96%,0 50%)' },
         };
-        const kids = b.content.kind === 'image' && b.content.image
+        const bc = (b && b.content) || {};
+        const kids = bc.kind === 'image' && bc.image
           ? [h('img', { class: 'fp-ball-img', src: b.content.image, style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })]
           : [b.glyph];
         return h('div', { class: 'fp-launch', style: SHAPE[b.shape] || SHAPE.circle }, kids);
@@ -3091,7 +3118,8 @@
           triangle: { clipPath: 'polygon(50% 4%,98% 94%,2% 94%)' },
           hexagon: { clipPath: 'polygon(25% 4%,75% 4%,100% 50%,75% 96%,25% 96%,0 50%)' },
         };
-        const kids = b.content.kind === 'image' && b.content.image
+        const bc = (b && b.content) || {};
+        const kids = bc.kind === 'image' && bc.image
           ? [h('img', { class: 'fp-ball-img', src: b.content.image, style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } })]
           : [b.glyph];
         return h('div', { class: 'fp-launch', style: SHAPE[b.shape] || SHAPE.circle }, kids);

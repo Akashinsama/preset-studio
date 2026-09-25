@@ -105,6 +105,7 @@
       scripts: {
         patches: new Map(),   // idx -> { name?, enabled?, content? }
         added: [],            // { key, name, id, content, enabled, ... }（把面板装进"本来没有脚本"的预设）
+        deleted: new Set(),   // idx：用户显式删除的**原有**脚本（导出时跳过；可反悔）
       },
     };
   }
@@ -462,7 +463,18 @@
       edit.scripts.added = edit.scripts.added.filter((x) => x.key !== key);
       return true;
     }
+    /* 's<idx>' = 预设里**原有**的脚本。以前这里直接 return false——也就是"别人的脚本删不掉"。
+       现在记进 deleted，导出时跳过；想反悔用 undeleteScript，别偷偷丢东西。 */
+    const m = /^s(\d+)$/.exec(key);
+    if (m) { edit.scripts.deleted.add(Number(m[1])); return true; }
     return false;
+  }
+
+  /** 取消删除（导出时照旧带上它） */
+  function undeleteScript(edit, key) {
+    const m = /^s(\d+)$/.exec(String(key));
+    if (!m) return false;
+    return edit.scripts.deleted.delete(Number(m[1]));
   }
 
   const scriptKeyOf = (idx) => 's' + idx;
@@ -748,7 +760,7 @@
        顺序本身有意义，所以这里按 edit.regex.order 重建数组。 */
     const regexChanged = edit.regex.patches.size || edit.regex.added.length || edit.regex.deleted.size
       || edit.regex.order.join() !== (edit.regex.baseOrder ?? []).join();
-    const scriptChanged = edit.scripts.patches.size > 0 || edit.scripts.added.length > 0;
+    const scriptChanged = edit.scripts.patches.size > 0 || edit.scripts.added.length > 0 || edit.scripts.deleted.size > 0;
     if (regexChanged || scriptChanged) {
       const ext = { ...(json.extensions ?? {}) };
       if (regexChanged) {
@@ -780,9 +792,11 @@
       if (scriptChanged) {
         const src = Array.isArray(ext.tavern_helper?.scripts) ? ext.tavern_helper.scripts : [];
         const outS = src.map((s, i) => {
+          /* 用户显式删掉的那几条跳过（与正则那边的 edit.regex.deleted 同一个写法） */
+          if (edit.scripts.deleted.has(i)) return null;
           const patch = edit.scripts.patches.get(i);
           return patch ? { ...s, ...patch } : s;
-        });
+        }).filter(Boolean);
         for (const a of edit.scripts.added) {
           const { key: _k, ...fields } = a;
           void _k;
@@ -1075,6 +1089,7 @@
     testRegex, runRegexChain, checkScriptSyntax, lineDiff,
     applyEdit, summary, exportChecks, verifySourceIntact,
     looksLikePanel, panelScriptViews, PANEL_MARKS,
+    deleteScript, undeleteScript,
     isPending, newIdentifier, keyOf, orderIndexOf, PROSE_FIELDS, proseOf,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
