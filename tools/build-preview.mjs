@@ -50,6 +50,9 @@ if (builtFile) {
       content: p.content ?? '',
       role: p.role ?? 'system',
       enabled: order.has(p.identifier) ? order.get(p.identifier) : false,
+      /* 注入位标记（聊天记录/角色卡/世界书这些位置标记）。面板靠它判断
+         "这一条只给看、不给改"（长按编辑器里不给保存），所以假数据必须带上。 */
+      marker: p.marker === true,
     });
   }
   mockName = `预览：${builtFile.replace(/\.json$/, '')}（成品）`;
@@ -67,6 +70,7 @@ if (builtFile) {
         content: p.content ?? '',
         role: p.role ?? 'system',
         enabled: order.has(p.identifier) ? order.get(p.identifier) : false,
+        marker: p.marker === true,     // 同上：面板要认这个字段
       });
     }
   }

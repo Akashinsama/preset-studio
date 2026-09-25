@@ -62,6 +62,12 @@
     window: { w: 380, h: 620, minW: 260, minH: 200, maxW: 0, maxH: 0 },
     layout: { radius: 14, scale: 1, fontScale: 1, opacity: 1, blur: 14 },
     wallpaper: { url: '', fit: 'cover', opacity: 0.35, blur: 0, dim: 0.15, dimColor: '#000000' },
+    /* 脚本层防截断的出厂开关（真正的状态在 localStorage 的 fano-antitrunc-v1）。 */
+    antitrunc: { enabled: true },
+    /* 顶部脚本按钮：名字要与预设里静态声明的两个一致（tools/build-preset.mjs 读这里）。 */
+    button: { enabled: true, panel: '⚙ 芳乃', antitrunc: '🛡 防截断' },
+    /* 长按条目改正文：按住多少毫秒算长按（enabled=false 就关掉这个手势）。 */
+    edit: { longPress: { enabled: true, ms: 500 } },
   };
 
   /* ── 从源码里把那段对象字面量抠出来 ───────────────────────────── */
@@ -274,6 +280,27 @@
         blur: num(c.wallpaper.blur, 0, 0, 40),
         dim: num(c.wallpaper.dim, 0.15, 0, 0.95),
         dimColor: String(c.wallpaper.dimColor ?? '#000000'),
+      },
+      /* 下面两段必须与面板 CFG 的写法**一模一样**（含字段顺序）：
+         test-panelconfig.mjs 会把两边的生效值 JSON 逐字段比。
+         规则：只认显式 false → 一律"关"；其余（没写 / 写错 / null）当"开"。
+         少了这两段，外观页一保存就会把 antitrunc/button 这两个键写回默认值——
+         用户明明关掉的东西会被悄悄打开。 */
+      antitrunc: {
+        enabled: c.antitrunc?.enabled !== false,
+      },
+      button: {
+        enabled: c.button?.enabled !== false,
+        panel: String(c.button?.panel ?? '⚙ 芳乃').trim() || '⚙ 芳乃',
+        antitrunc: String(c.button?.antitrunc ?? '🛡 防截断').trim() || '🛡 防截断',
+      },
+      /* 长按改正文的手势。同样：只认显式 false。毫秒夹在 250–1500，
+         写个 0 或负数会落到 250——想关掉请用 enabled:false（面板上"长按"整段都会消失）。 */
+      edit: {
+        longPress: {
+          enabled: c.edit?.longPress?.enabled !== false,
+          ms: Math.round(num(c.edit?.longPress?.ms, 500, 250, 1500)),
+        },
       },
     };
   }

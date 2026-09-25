@@ -378,6 +378,51 @@
      两条完全不同的路。搭面板时改的是脚本，而"导出预设"导出的是整份文件。
      所以"这份预设里到底有没有面板"必须能单独问出来，不能靠人自己记得。 */
   const PANEL_MARKS = ['FANO_PANEL_CONFIG_BEGIN', '__FANO_PANEL__'];
+  /* 怎么认出"这是我们这套面板"：认**分组块**（FANO_PANEL_GROUPS_BEGIN）。
+     为什么不用 CONFIG 标记：适配器（tools/adapt-panel.mjs）也给**别人的**面板注入了
+     CONFIG 块，拿它会把那支面板误当成我们的，然后"一键换新版"把人家的面板整段换掉——
+     那是破坏性的。认错的方向也是挑过的：万一遇到更老的、还没有分组块的那份我们的面板，
+     会被当成"别人的面板"→ 只提醒、不拦、也不提供替换，坏结果最小。
+     （实测：panel/fano-panel.js 有 1 处；芳乃预设_v2.8.1-适配.json 里 0 处。） */
+  const PANEL_IDENTITY_MARK = 'FANO_PANEL_GROUPS_BEGIN';
+  /* 面板"会什么"的能力标记：面板源码里写死的常量名（见 panel/src/panel-core.js）。
+     靠它判断"这份预设里的面板脚本是不是新版"，比看版本号稳——
+     版本号会被手改，能力标记是代码的一部分，缺了就是真缺。 */
+  const PANEL_CAP_MARKS = { longPressEdit: 'FANO_PANEL_CAP_LONGPRESS_EDIT' };
+
+  /**
+   * 这份面板脚本是不是我们这套、会哪些能力。
+   * 导出前检查与界面上的面板卡都用它，免得两处各判一套。
+   */
+  function panelSupport(content) {
+    const src = String(content ?? '');
+    const ours = src.includes(PANEL_IDENTITY_MARK);
+    const caps = {};
+    for (const [k, mk] of Object.entries(PANEL_CAP_MARKS)) caps[k] = src.includes(mk);
+    return { ours, caps, missing: Object.keys(caps).filter((k) => !caps[k]) };
+  }
+
+  /**
+   * 把预设里那份**旧面板**换成新版面板源码，并把你改过的东西带过去。
+   *
+   * 能带过去的只有"你的设置"：CONFIG（外观，含标题）与 GROUPS_OVERRIDE（分组覆盖）。
+   * 代码本身整段换新——旧代码没法逐行升级，那是另一版实现。
+   * 只对**我们这套面板**用（见 PANEL_IDENTITY_MARK）。
+   */
+  function upgradePanelContent(oldContent, newSource, opts = {}) {
+    const PC = root.PresetPanelConfig;
+    let next = String(newSource ?? '');
+    if (!next || !PC) return next;           // 面板配置模块没载入：至少把新代码换上
+    try {
+      const old = PC.extractConfig(oldContent);
+      if (old) next = PC.patchConfig(next, opts.title ? { ...old, title: opts.title } : old);
+    } catch { /* 旧配置读不出来就用新面板的默认值，不阻断 */ }
+    try {
+      const ov = PC.extractGroups(oldContent);
+      if (ov) next = PC.patchGroups(next, ov);
+    } catch { /* 同上 */ }
+    return next;
+  }
 
   /** 一段脚本正文像不像浮动面板 */
   const looksLikePanel = (content) =>
@@ -1017,6 +1062,38 @@
             + '点「装进这份预设」把它写进去（只替换配置与分组那两段，面板代码一行不动），再导出。',
         });
       }
+
+      /* 面板能力：预设里带的这份面板会不会"长按条目改正文"（面板 0.5.0 起）。
+         分级处理，别一把拦死：
+           · 是我们这套面板、但缺这个能力 → **拦住**：导出的就是他要的那份面板，
+             缺能力等于没达到目的；给一键补救「换成新版面板」，再给一条活路
+             「就带这个旧面板导出」（按 revision 记账，动一下就会重新问）。
+           · 是**别人的**面板（没有我们的分组块）→ 只说一句，不拦：
+             人家预设里本来就有个脚本，很正常，也没义务换成我们的。 */
+      const sup = panels.map((s) => ({ s, ...panelSupport(s.content) }));
+      const ours = sup.filter((x) => x.ours);
+      const stale = ours.filter((x) => x.missing.includes('longPressEdit'));
+      if (stale.length && !pi?.staleIgnored) {
+        blocking.push({
+          kind: '面板是旧版：不能长按改正文',
+          text: `这份预设里的面板脚本「${stale.map((x) => x.s.name).join('、')}」是旧版——`
+            + '**长按条目改正文**这个能力它没有，导出去以后在酒馆里长按不会有反应。'
+            + '点「换成新版面板」一键换成新版（你在「面板外观 / 面板分组」里改过的设置会带过去）；'
+            + '要是就想带着这个旧面板导出，点「就带这个旧面板导出」。',
+        });
+      } else if (stale.length) {
+        warnings.push({
+          kind: '带着旧版面板导出',
+          text: '你说了"就带这个旧面板导出"——那么长按条目改正文不会有。改动一下别的地方，它会再问你一次。',
+        });
+      } else if (panels.length && !ours.length) {
+        warnings.push({
+          kind: '面板不是这套',
+          text: `这份预设自带的面板脚本「${panels.map((s) => s.name).join('、')}」不是本工具这套面板`
+            + '（没有我们的分组块），所以"长按条目改正文"这类能力跟着它走。'
+            + '想让这份预设也有，去「面板外观」页点「装进这份预设」。',
+        });
+      }
     } else if (wantsPanel && !pi.ignored) {
       blocking.push({
         kind: '面板没装进预设',
@@ -1088,7 +1165,8 @@
     scriptViews, setScriptField, addScript, deleteScript, scriptKeyOf,
     testRegex, runRegexChain, checkScriptSyntax, lineDiff,
     applyEdit, summary, exportChecks, verifySourceIntact,
-    looksLikePanel, panelScriptViews, PANEL_MARKS,
+    looksLikePanel, panelScriptViews, PANEL_MARKS, PANEL_CAP_MARKS, PANEL_IDENTITY_MARK,
+    panelSupport, upgradePanelContent,
     deleteScript, undeleteScript,
     isPending, newIdentifier, keyOf, orderIndexOf, PROSE_FIELDS, proseOf,
   };

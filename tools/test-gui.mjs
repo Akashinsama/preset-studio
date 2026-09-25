@@ -1496,6 +1496,106 @@ console.log('\n[19] 面板搭建：三层结构的增删改与导出形状');
   }
 }
 
+/* ── 20. 面板能力守卫：导出的预设里那份面板会不会"长按条目改正文" ── */
+console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活路），别人的面板只提醒');
+{
+  const PEg = globalThis.PresetEditor;
+  const PCg = globalThis.PresetPanelConfig;
+  const ANCHORS = PI.ANCHORS.filter((a) => a.tier === 'must').map((a) => a.id);
+  const NEW_PANEL = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
+  const capKey = PEg.PANEL_CAP_MARKS.longPressEdit;
+
+  /* 20a. 认面板：靠**分组块**，不靠 CONFIG 块（适配器也给别人的面板注入了 CONFIG）。 */
+  ok('新版面板：认得出是我们的，能力齐全',
+    PEg.panelSupport(NEW_PANEL).ours === true && PEg.panelSupport(NEW_PANEL).missing.length === 0,
+    JSON.stringify(PEg.panelSupport(NEW_PANEL)));
+  const OLD_PANEL = NEW_PANEL.replace(capKey, 'FANO_PANEL_CAP_RETIRED');
+  ok('旧版面板（抽掉能力标记）：仍是我们这套，但缺 longPressEdit',
+    PEg.panelSupport(OLD_PANEL).ours === true && PEg.panelSupport(OLD_PANEL).missing.join() === 'longPressEdit',
+    JSON.stringify(PEg.panelSupport(OLD_PANEL)));
+  const ADAPTED = OLD_PANEL
+    .replace(/FANO_PANEL_GROUPS_BEGIN/g, 'ADAPTED_BEGIN')
+    .replace(/FANO_PANEL_GROUPS_END/g, 'ADAPTED_END');
+  ok('适配过的别人的面板（有 CONFIG 块、没有分组块）→ 不当成我们的',
+    PEg.panelSupport(ADAPTED).ours === false, JSON.stringify(PEg.panelSupport(ADAPTED)));
+
+  /* 20b. 换新版：只换代码，保住"他的设置"（外观 + 分组） */
+  const ov = { groups: [{ id: 'g1', label: '我的模块', mode: 'multi', members: ['主提示'] }], sections: [{ title: 'S', groups: ['g1'] }], thinkingTags: [] };
+  const tuned = PCg.patchGroups(
+    PCg.patchConfig(OLD_PANEL, { ...PCg.extractConfig(OLD_PANEL), title: '某人的面板', ball: { size: 60 } }),
+    ov,
+  );
+  const up = PEg.upgradePanelContent(tuned, NEW_PANEL, { title: '某人的面板' });
+  ok('换新后能力标记回来了', up.includes(capKey));
+  ok('换新后外观带过来了（标题 / 球大小）',
+    PCg.extractConfig(up).title === '某人的面板' && PCg.extractConfig(up).ball.size === 60,
+    JSON.stringify({ title: PCg.extractConfig(up).title, ball: PCg.extractConfig(up).ball.size }));
+  ok('换新后分组覆盖带过来了', JSON.stringify(PCg.extractGroups(up)) === JSON.stringify(ov));
+  ok('换新后是能跑的 JS', (() => { try { new Function(up); return true; } catch { return false; } })());
+
+  /* 20c. exportChecks 的三级分寸（在成品预设上真跑一遍） */
+  const base = JSON.parse(fs.readFileSync(P('preset', '芳乃预设.json'), 'utf8'));
+  const m = PP.parsePreset(base, '成品.json');
+  const e = PEg.emptyEdit(m, ANCHORS);
+  const view = PEg.panelScriptViews(e, base, m)[0];
+  ok('成品预设里认得出我们的面板脚本', !!view && PEg.panelSupport(view.content).ours === true,
+    view ? `${view.name}（${Math.round(view.bytes / 1024)}KB）` : '没有');
+  const checks = (panel) => PEg.exportChecks(base, e, m, { anchorIds: ANCHORS, panel });
+  const kinds = (c) => [...c.blocking, ...c.warnings].map((x) => x.kind).join('｜');
+  ok('新版面板：不拦、也不提面板能力',
+    !checks({ groups: 0, appearance: false }).blocking.some((b) => /长按/.test(b.kind)),
+    kinds(checks({ groups: 0, appearance: false })));
+  PEg.setScriptField(e, base, view.ref, 'content', view.content.replace(capKey, 'FANO_PANEL_CAP_RETIRED'));
+  ok('旧面板 → 拦住导出，并点名原因',
+    checks({ groups: 0, appearance: false }).blocking.some((b) => b.kind === '面板是旧版：不能长按改正文'),
+    kinds(checks({ groups: 0, appearance: false })));
+  ok('旧面板 + 说"就带这个旧面板导出" → 放行，但仍留一条提示',
+    checks({ groups: 0, appearance: false, staleIgnored: true }).blocking.length === 0
+    && checks({ groups: 0, appearance: false, staleIgnored: true }).warnings.some((w) => w.kind === '带着旧版面板导出'),
+    kinds(checks({ groups: 0, appearance: false, staleIgnored: true })));
+  PEg.setScriptField(e, base, view.ref, 'content',
+    view.content.replace(/FANO_PANEL_GROUPS_BEGIN/g, 'X').replace(/FANO_PANEL_GROUPS_END/g, 'X'));
+  ok('别人的面板 → 不拦，只提醒',
+    checks({ groups: 0, appearance: false }).blocking.length === 0
+    && checks({ groups: 0, appearance: false }).warnings.some((w) => w.kind === '面板不是这套'),
+    kinds(checks({ groups: 0, appearance: false })));
+  PEg.setScriptField(e, base, view.ref, 'content', view.content);
+  ok('恢复成新版后，导出又干净了', checks({ groups: 0, appearance: false }).blocking.length === 0);
+
+  /* 20d. 老面板的 CONFIG 里**没有新键**：裸读会抛，补齐之后才安全。
+     这正是"导入一份自带旧面板的预设 → 点「面板外观」整页崩"的那个坑
+     （真实报错：Cannot read properties of undefined (reading 'longPress')）。
+     界面的读法在 ui.js 的 ensureAppearance()：一律 mergeConfig(DEFAULT_CONFIG, 读到的)。 */
+  {
+    const oldCfg = { ...PCg.extractConfig(OLD_PANEL) };
+    delete oldCfg.edit;
+    delete oldCfg.antitrunc;
+    delete oldCfg.button;
+    let threw = false;
+    try { void oldCfg.edit.longPress; } catch { threw = true; }
+    ok('反例：老 CONFIG 裸读 edit.longPress 会抛（这就是那个坑）', threw === true);
+
+    const merged = PCg.mergeConfig(PCg.DEFAULT_CONFIG, oldCfg);
+    ok('按出厂形状补齐：DEFAULT_CONFIG 里每个键都在（界面直接取字段才安全）',
+      Object.keys(PCg.DEFAULT_CONFIG).every((k) => merged[k] !== undefined),
+      Object.keys(PCg.DEFAULT_CONFIG).filter((k) => merged[k] === undefined).join('、') || '全都在');
+    ok('补齐后 edit.longPress 拿到默认值（500ms / 开）',
+      merged.edit.longPress.enabled === true && merged.edit.longPress.ms === 500,
+      JSON.stringify(merged.edit));
+    ok('补齐不会拿默认值盖掉他原来的设置',
+      merged.title === oldCfg.title && merged.ball.size === oldCfg.ball.size
+      && merged.window.w === oldCfg.window.w,
+      JSON.stringify({ title: merged.title, ball: merged.ball.size, w: merged.window.w }));
+    ok('补齐后喂给 clampConfig 不抛，两个新键都在',
+      (() => {
+        try { const c = PCg.clampConfig(merged); return !!c.edit && !!c.antitrunc && !!c.button; } catch { return false; }
+      })());
+    /* 半截配置（只有 enabled、没写 ms）也要出得来值，否则界面上显示 undefined */
+    ok('半截 edit 配置也显示得出毫秒（走 clampConfig）',
+      PCg.clampConfig(PCg.mergeConfig(PCg.DEFAULT_CONFIG, { edit: { longPress: { enabled: false } } })).edit.longPress.ms === 500);
+  }
+}
+
 console.log('\n────────────────────────────────────────');
 console.log(`通过 ${pass} 项，失败 ${fails.length} 项`);
 if (fails.length) { for (const f of fails) console.log('  ✗ ' + f); process.exitCode = 1; }

@@ -330,6 +330,28 @@ const thinkChain = JSON.parse(fs.readFileSync(P('preset', 'fano-thinking-chain.j
 const extraRegexes = JSON.parse(fs.readFileSync(P('preset', 'fano-regex-extra.json'), 'utf8'));
 const panelCode = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
 
+/* 顶部脚本按钮的**静态声明**（酒馆助手不认运行时注册，见下面的注释）：
+   名字与开关从面板自己那份 CONFIG.button 读——两处各写一份的话，改了名字就会变成
+   "渲染的是静态名、面板去接另一个名"的摆设按钮。读不出来就退回默认的两个名字。 */
+function readButtonDecl(code) {
+  const fallback = { enabled: true, buttons: [{ name: '⚙ 芳乃', visible: true }, { name: '🛡 防截断', visible: true }] };
+  try {
+    new Function('globalThis', fs.readFileSync(P('tools', 'gui', 'lib', 'panelconfig.js'), 'utf8'))(globalThis);
+    const b = globalThis.PresetPanelConfig.extractConfig(code)?.button;
+    if (!b) return { decl: fallback, note: '面板 CONFIG 里没有 button，用默认的两个按钮名' };
+    if (b.enabled === false) return { decl: { enabled: false, buttons: [] }, note: '面板 CONFIG 的 button.enabled=false：不声明按钮区' };
+    const names = [String(b.panel ?? '').trim(), String(b.antitrunc ?? '').trim()].filter(Boolean);
+    if (names.length !== 2) return { decl: fallback, note: '面板 CONFIG 的 button 名字不全，用默认的两个按钮名' };
+    return {
+      decl: { enabled: true, buttons: names.map((name) => ({ name, visible: true })) },
+      note: `顶部按钮名读自面板 CONFIG：${names.join(' / ')}`,
+    };
+  } catch (e) {
+    return { decl: fallback, note: '读面板 CONFIG 失败（' + ((e && e.message) || e) + '），用默认的两个按钮名' };
+  }
+}
+const btnDecl = readButtonDecl(panelCode);
+
 const base = JSON.parse(fs.readFileSync(P(FILES.Kemini), 'utf8'));
 const out = { ...base };
 delete out.prompts;
@@ -350,7 +372,10 @@ out.extensions = {
       id: 'fano-panel',
       content: panelCode,
       info: '芳乃配色悬浮窗：按子集开关预设条目、破甲按模型分流、自定义项可直接填写。',
-      button: { enabled: false, buttons: [] },
+      /* 顶部脚本按钮必须是**静态声明** + enabled:true，酒馆助手才会渲染按钮区——
+         这是 v2.8.1 那边踩过的坑（光调运行时 API 没用）。名单与开关读自面板
+         CONFIG.button：⚙ 芳乃 = 开合面板；🛡 防截断 = 切换脚本层防截断的开关。 */
+      button: btnDecl.decl,
       data: {},
       export_with: { data: false, button: true },
     }],
@@ -402,6 +427,7 @@ if (defaultOff.size) {
     + `配套正则没搬齐，开着会把事件文本漏进聊天`);
 }
 R.push(`内置槽位主人：${Object.entries(SLOT_OWNER).map(([k, v]) => `${k}→${v.split(':')[1] || v}`).join('　')}`);
+R.push(`顶部按钮静态声明：${btnDecl.decl.enabled ? btnDecl.decl.buttons.map((b) => b.name).join(' / ') : '（关着，不声明）'}　· ${btnDecl.note}`);
 if (dropped.length) { R.push(`丢弃空占位 ${dropped.length} 条：`); dropped.forEach((d) => R.push('   · ' + d)); }
 if (degraded.length) { R.push(`降级为普通条目 ${degraded.length} 条：`); degraded.forEach((d) => R.push('   · ' + d)); }
 if (unresolved.length) { R.push(`⚠ 找不到来源 ${unresolved.length} 条：`); unresolved.forEach((d) => R.push('   · ' + d)); }

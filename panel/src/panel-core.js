@@ -58,7 +58,7 @@
   const EDITABLE = ((GROUPS.find((g) => g.mode === 'editable') || {}).editable) || {};
 
   const ID = 'fano-preset-panel-v1';
-  const VERSION = '0.4.0';
+  const VERSION = '0.5.0';
   const LS = {
     open: ID + '_open_v1',
     night: ID + '_night_v1',
@@ -68,6 +68,9 @@
     ball: ID + '_ball_v1',
     /* 整块隐藏：默认**不落盘**（刷新必然回来）；显式 persistHidden(true) 才写 */
     hidden: ID + '_hidden_v1',
+    /* 脚本层防截断的开关。键**故意不跟 ID 走**：沿用 v2.8.1 那边已有的 fano-antitrunc-v1，
+       这样从那一支换过来时，用户原来的开关状态不会丢。 */
+    antitrunc: 'fano-antitrunc-v1',
     plans: ID + '_plans_v1',
     collapsed: ID + '_collapsed_v1',
     expanded: ID + '_expanded_v1',
@@ -192,6 +195,21 @@
       dim: 0.15,         // 压暗层：壁纸太花时把文字压回可读
       dimColor: '#000000',
     },
+    /* 脚本层防截断（拦截 generate 请求，让正文走函数调用回传；实现见
+       panel/src/antitrunc.js）。这里只是**这份预设出厂时的开关**：
+       真正记状态的是 localStorage 的 fano-antitrunc-v1（顶部「🛡 防截断」按钮
+       写的就是它）。所以 enabled=false 表示"这份预设出厂不带防护"，
+       用户点过按钮之后就以他点的为准。 */
+    antitrunc: { enabled: true },
+    /* 顶部脚本按钮（酒馆助手）。名字必须和预设里**静态声明**的那两个一致，
+       否则酒馆渲染的是静态名字、面板去接另一个名字，按钮就成了摆设——
+       tools/build-preset.mjs 写 button.buttons 时读的正是这里，改完重新构建即可。
+       enabled=false = 不声明也不接线（那份预设不带顶部按钮）。 */
+    button: { enabled: true, panel: '⚙ 芳乃', antitrunc: '🛡 防截断' },
+    /* 长按条目改正文：按住 longPress.ms 毫秒，就打开那一条的正文编辑器。
+       enabled=false 就关掉这个手势（面板上不会提"长按"两个字）。
+       改的是**预设里那一条的正文**，保存时和其它操作一样只写回一次。 */
+    edit: { longPress: { enabled: true, ms: 500 } },
   };
   /* ══ FANO_PANEL_CONFIG_END ════════════════════════════════════════════ */
 
@@ -264,6 +282,23 @@
       blur: num(CONFIG?.wallpaper?.blur, 0, 0, 40),
       dim: num(CONFIG?.wallpaper?.dim, 0.15, 0, 0.95),
       dimColor: String(CONFIG?.wallpaper?.dimColor ?? '#000000'),
+    },
+    /* 只认显式 false：没写 / 写错 / null 都当**开启**（默认要有这一层防护）。
+       字段顺序与 tools/gui/lib/panelconfig.js 的 clampConfig() 必须一致：
+       test-panelconfig.mjs 会把两边的生效值逐字段（含顺序）比对。 */
+    antitrunc: {
+      enabled: CONFIG?.antitrunc?.enabled !== false,
+    },
+    button: {
+      enabled: CONFIG?.button?.enabled !== false,
+      panel: String(CONFIG?.button?.panel ?? '⚙ 芳乃').trim() || '⚙ 芳乃',
+      antitrunc: String(CONFIG?.button?.antitrunc ?? '🛡 防截断').trim() || '🛡 防截断',
+    },
+    edit: {
+      longPress: {
+        enabled: CONFIG?.edit?.longPress?.enabled !== false,
+        ms: Math.round(num(CONFIG?.edit?.longPress?.ms, 500, 250, 1500)),
+      },
     },
   };
   const hasWallpaper = () => !!CFG.wallpaper.url;
@@ -383,6 +418,8 @@
     bundles: readLS(LS.bundle, {}),
     /** 在非自定义模块里手动展开了哪些编辑框。 */
     editors: new Set(),
+    /** 长按条目打开的那个正文编辑器：当前正在改哪一条（null = 没开）。 */
+    editTarget: null,
     /** 位置校验：跑飞时只尝试换挂载点一次，避免递归。 */
     remountTried: false,
     lastPlacement: null,
@@ -655,6 +692,204 @@
   function toggleOne(name, enabled) {
     if (!find(name)) return toast('当前预设里没有这一条：' + name, 'err');
     apply([{ name, enabled }], (enabled ? '已开 ' : '已关 ') + name);
+  }
+
+  /* ══ 长按条目 → 改这一条的正文 ══════════════════════════════════════
+     为什么要有这个：面板上大多数条目只有一个开关/下拉，正文看不到也改不了；
+     想看某一条写了什么、顺手改两句，原来只能去酒馆的预设编辑器里翻。
+
+     手势规则（都写在 CONFIG.edit.longPress 里，enabled=false 就整个关掉）：
+       · 按住 ms 毫秒算长按；
+       · 期间指针移动超过 8px 就取消——手机上那是"在滚动"，不是"在长按"；
+       · 长按触发后，松手跟来的那次 click **会被吞掉**，否则会顺手把这一条开关掉；
+       · 触发时那一行高亮一下，手机支持震动就轻震一下（反馈，不是效果）。
+     落在哪儿：
+       · 多选开关排 / 破甲档位 —— 每一行（.fp-sw）都能长按；
+       · 单选下拉 —— 下拉本身是原生控件（一按就弹系统选择器），所以它下面那一行
+         "当前：<条目>" 就是它的条目行，长按它改当前这一条；
+       · 只读区（固定分组）—— 每个名字一个可长按的条目行；
+       · 注入位标记（marker：聊天记录/角色卡/世界书这些位置标记）**只给看**，
+         不给保存：它们的正文本来就该是空的，往里写东西会直接坏掉注入。 */
+
+  /** 能力标记：编辑器导出前检查靠这一行判断"这份面板脚本会不会长按改正文"。
+      改这段代码时**别删这一行**（删了编辑器就认不出来了）。 */
+  const CAP_LONGPRESS_EDIT = 'FANO_PANEL_CAP_LONGPRESS_EDIT';
+
+  /** 长按期间指针允许的抖动（px）。超过就当成滚动/拖动，取消。 */
+  const HOLD_CANCEL_PX = 8;
+  /** 长按已经触发过：紧跟的那一次 click 要吞掉（见 bindGestureOnce 里的捕获监听）。 */
+  let swallowNextClick = false;
+
+  /** 这一条是不是酒馆的注入位标记（正文必须为空，改了就坏）。 */
+  const isMarker = (name) => {
+    const p = find(name);
+    return !!(p && p.marker === true);
+  };
+
+  /** 长按触发时的反馈：能震就轻震一下（拿不到就当没有，绝不抛）。 */
+  function buzz() {
+    try {
+      const nav = HOST.win.navigator || (typeof navigator !== 'undefined' ? navigator : null);
+      if (nav && typeof nav.vibrate === 'function') nav.vibrate(15);
+    } catch { /* 忽略 */ }
+  }
+
+  /** 打开某一条的正文编辑器（浮层）。 */
+  function openEntryEditor(name) {
+    if (!find(name)) return toast('当前预设里没有这一条：' + LBL(name), 'err');
+    state.editTarget = name;
+    render();
+    /* 打开就把光标放进去（省一次点击）。拿不到就拉倒。 */
+    try {
+      const mask = HOST.doc.getElementById(ID + '-edit');
+      const ta = mask && typeof mask.querySelector === 'function' ? mask.querySelector('textarea') : null;
+      if (ta && !isMarker(name) && typeof ta.focus === 'function') ta.focus();
+    } catch { /* 忽略 */ }
+    return name;
+  }
+
+  /** 关掉浮层（不写回）。 */
+  function closeEntryEditor() {
+    if (state.editTarget === null) return false;
+    state.editTarget = null;
+    render();
+    return true;
+  }
+
+  /**
+   * 把长按手势挂到某一行上。行里点一下该干嘛还干嘛（开关/选中），
+   * 只有"按住不动"才是改正文——两件事不抢同一个手势。
+   */
+  function bindLongPress(node, name) {
+    if (!CFG.edit.longPress.enabled || !name || !node || typeof node.addEventListener !== 'function') return;
+    let timer = null;
+    let sx = 0;
+    let sy = 0;
+    const cancel = () => {
+      if (timer !== null) { clearTimeout(timer); timer = null; }
+      try { node.classList.remove('fp-hold'); } catch { /* 忽略 */ }
+    };
+    node.addEventListener('pointerdown', (e) => {
+      if (e && typeof e.button === 'number' && e.button !== 0) return;   // 只认左键/触摸
+      /* 下拉框自己要用这个手势（点一下就是选它），别抢 */
+      if (e && e.target && typeof e.target.closest === 'function' && e.target.closest('select')) return;
+      swallowNextClick = false;         // 上一次长按留下的"吞一次"不该跨到这一次
+      sx = e ? e.clientX : 0;
+      sy = e ? e.clientY : 0;
+      try { node.classList.add('fp-hold'); } catch { /* 忽略 */ }
+      timer = setTimeout(() => {
+        timer = null;
+        swallowNextClick = true;        // 松手跟来的那次 click 由 onRowClick 吞掉
+        try { node.classList.remove('fp-hold'); } catch { /* 忽略 */ }
+        buzz();
+        openEntryEditor(name);
+      }, CFG.edit.longPress.ms);
+    });
+    node.addEventListener('pointermove', (e) => {
+      if (timer === null) return;
+      const dx = Math.abs((e ? e.clientX : 0) - sx);
+      const dy = Math.abs((e ? e.clientY : 0) - sy);
+      if (dx + dy > HOLD_CANCEL_PX) cancel();
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(ev, cancel);
+  }
+
+  /**
+   * 条目行的"点一下"统一走这里：长按刚开过编辑器的那一次点击会被吞掉。
+   *
+   * 为什么必须由**行**自己拦：长按会触发一次重渲染，原来那一行已经从文档里摘下来了，
+   * 而浏览器仍可能把随后的 click 派发到这个**已摘下的节点**上——那时行里"点一下开关"
+   * 照样会跑，于是长按一下就顺手把条目开关掉了，或者把刚打开的东西又切走。
+   * 文档级的捕获监听救不了（节点已不在文档树里），所以守卫必须在行内部。
+   */
+  function onRowClick(fn) {
+    return (e) => {
+      if (swallowNextClick) {
+        swallowNextClick = false;
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        return;
+      }
+      fn(e);
+    };
+  }
+
+  /** 一个可长按的条目行（名字 + 字数）：只读区、单选组的"当前条目"都用它。
+      opts.onPick 给了就是"点一下选中它"，没给就是"点一下打开正文编辑器"。 */
+  function entryRow(name, opts = {}) {
+    const p = find(name);
+    const row = el('div', 'fp-sw');
+    row.dataset.on = p && on(p) ? '1' : '0';
+    if (!p) row.dataset.miss = '1';
+    if (opts.subtle) row.dataset.subtle = '1';
+    row.appendChild(el('span', '', LBL(name)));
+    if (p) row.appendChild(el('i', '', sizeLabel(chars(p.content))));
+    const foot = isMarker(name)
+      ? '注入位标记：正文必须为空，只能看'
+      : (CFG.edit.longPress.enabled ? `长按改正文（按住 ${CFG.edit.longPress.ms}ms）` : '');
+    row.title = (p ? `${LBL(name)}\n${chars(p.content)} 字` : `${LBL(name)}\n当前预设里没有这一条`)
+      + (foot ? `\n${foot}` : '');
+    if (p) row.addEventListener('click', onRowClick(() => (opts.onPick ? opts.onPick(name) : openEntryEditor(name))));
+    bindLongPress(row, name);
+    return row;
+  }
+
+  /** 长按开出来的正文编辑器浮层（盖在窗口里）。 */
+  function entryEditorBox(name) {
+    const p = find(name);
+    const marker = isMarker(name);
+    const mask = el('div', 'fp-editmask');
+    mask.id = ID + '-edit';
+    /* 点空白处关掉；点内容不关（否则一不小心就把没保存的改动丢了） */
+    mask.addEventListener('click', (e) => { if (!e || e.target === mask) closeEntryEditor(); });
+
+    const box = el('div', 'fp-editbox');
+    const head = el('div', 'fp-rowhead');
+    head.appendChild(el('b', 'fp-editname', LBL(name)));
+    head.appendChild(el('span', 'fp-badge', p && on(p) ? '已启用' : '未启用'));
+    const count = el('span', 'fp-note', `${chars(p.content)} 字`);
+    head.appendChild(count);
+    box.appendChild(head);
+
+    if (marker) {
+      box.appendChild(el('div', 'fp-modnote',
+        `这是酒馆的**注入位标记**（${p.identifier || '位置标记'}）：它的正文本来就该是空的，`
+        + '往这里写东西会让世界书/角色卡/聊天记录进不了上下文。所以这一条只给看，不给改。'));
+    } else {
+      box.appendChild(el('div', 'fp-modnote',
+        `改的是预设里「${name}」这一条的正文，保存时和其它操作一样**只写回一次**。`
+        + '（长按面板上任一条目都能打开这里。）'));
+    }
+
+    const ta = el('textarea', 'fp-textarea');
+    ta.value = p.content || '';
+    if (marker) ta.readOnly = true;
+    ta.addEventListener('input', () => { count.textContent = `${chars(ta.value)} 字（保存后生效）`; });
+    box.appendChild(ta);
+
+    const chips = el('div', 'fp-chips');
+    if (!marker) {
+      chips.appendChild(el('span', 'fp-mini', '保存')).addEventListener('click', () => {
+        const text = ta.value;
+        state.editTarget = null;      // 先关掉浮层再写回：写回成功/失败都由 toast 说话
+        saveContent(name, text);
+      });
+      chips.appendChild(el('span', 'fp-mini', '撤销改动')).addEventListener('click', () => {
+        ta.value = (find(name) || {}).content || '';
+        count.textContent = `${chars(ta.value)} 字`;
+      });
+    }
+    chips.appendChild(el('span', 'fp-mini', marker ? '知道了' : '关闭')).addEventListener('click', () => closeEntryEditor());
+    box.appendChild(chips);
+
+    mask.appendChild(box);
+    return mask;
+  }
+
+  /** 只读区（固定分组）的条目行：不改开关，只给长按看/改正文。 */
+  function entryRows(members, opts = {}) {
+    const grid = el('div', 'fp-switches');
+    for (const m of members) grid.appendChild(entryRow(m, opts));
+    return grid;
   }
 
   /**
@@ -955,6 +1190,21 @@
 .fp-editbtn{border-style:dashed;color:var(--fp-text-dim)}
 .fp-editbtn[data-on="1"]{border-style:solid}
 
+/* 长按条目改正文：按住时先给反馈，松手前一直亮着（.fp-hold 由手势加上去） */
+.fp-sw{touch-action:pan-y}
+.fp-sw.fp-hold{border-color:var(--fp-accent);background:var(--fp-accent-soft);
+  box-shadow:0 0 0 3px var(--fp-accent-soft);transform:scale(.97)}
+.fp-sw[data-subtle="1"]{font-size:11px;color:var(--fp-text-faint)}
+
+/* 长按开出来的正文编辑器：盖在窗口里的一层（点空白处关掉） */
+.fp-editmask{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
+  padding:14px;background:rgba(0,0,0,0.28);border-radius:inherit}
+.fp-editbox{display:flex;flex-direction:column;gap:7px;width:100%;max-height:100%;overflow:auto;
+  padding:11px;border-radius:12px;border:1px solid var(--fp-border-strong);background:var(--fp-bg-raised);
+  box-shadow:0 8px 28px var(--fp-shadow)}
+.fp-editbox .fp-textarea{min-height:180px}
+.fp-editname{font-size:12.5px;color:var(--fp-text)}
+
 .fp-rowhead{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
 .fp-note{font-size:10.5px;color:var(--fp-text-faint)}
 .fp-badge{font-size:10px;padding:0 5px;border-radius:99px;border:1px solid var(--fp-border-strong);
@@ -1168,6 +1418,10 @@
     }
     win.appendChild(body);
 
+    /* 长按条目开出来的正文编辑器：盖在窗口内容之上的一层 */
+    if (state.editTarget !== null && find(state.editTarget)) win.appendChild(entryEditorBox(state.editTarget));
+    else if (state.editTarget !== null) state.editTarget = null;   // 那一条没了就自己收起来
+
     /* 脚 */
     const foot = el('div', 'fp-foot');
     const chips = el('div', 'fp-chips');
@@ -1314,6 +1568,8 @@
       sel.value = cur;
       sel.addEventListener('change', () => pickTunableSingle(g, t, sel.value));
       wrap.appendChild(sel);
+      /* 同 single 组：档位的"条目行"放在下拉框下面，长按改当前这一条的正文 */
+      if (cur) wrap.appendChild(entryRows([cur], { subtle: true }));
       if (cur && EDITABLE[cur]) {
         const sub = el('div', 'fp-tunable');
         sub.appendChild(el('div', 'fp-tunlabel', `${LBL(cur)} · 自己填`));
@@ -1334,7 +1590,9 @@
       sw.appendChild(el('span', '', LBL(m)));
       if (p) sw.appendChild(el('i', '', sizeLabel(chars(p.content))));
       sw.title = p ? `${LBL(m)}\n${chars(p.content)} 字　当前：${on(p) ? '开' : '关'}` : `${LBL(m)}\n当前预设里没有这一条`;
-      if (p) sw.addEventListener('click', () => toggleOne(m, !on(p)));
+      if (CFG.edit.longPress.enabled && p) sw.title += '\n长按这一行改它的正文';
+      if (p) sw.addEventListener('click', onRowClick(() => toggleOne(m, !on(p))));
+      bindLongPress(sw, m);
       grid.appendChild(sw);
       if (EDITABLE[m]) grid.appendChild(editBtn(m));
     }
@@ -1416,10 +1674,13 @@
       return box;
     }
 
-    /* fixed：不暴露 */
+    /* fixed：不给开关（酒馆内置槽位与核心结构），但**正文可以看、可以改**——
+       注入位标记那几条只给看（正文必须为空）。 */
     if (g.mode === 'fixed') {
-      box.appendChild(el('div', 'fp-modnote', `面板不碰这 ${g.members.length} 条（酒馆内置槽位与核心结构）。`));
-      box.appendChild(el('div', 'fp-modnote', g.members.join('、')));
+      box.appendChild(el('div', 'fp-modnote',
+        `面板不碰这 ${g.members.length} 条的开关（酒馆内置槽位与核心结构）`
+        + (CFG.edit.longPress.enabled ? '；长按名字可以看/改它的正文。' : '。')));
+      box.appendChild(entryRows(g.members, { subtle: true }));
       return box;
     }
 
@@ -1428,7 +1689,12 @@
       if (g.note) box.appendChild(el('div', 'fp-modnote', g.note));
       for (const m of g.members) {
         const wrap = el('div', 'fp-tunable');
-        wrap.appendChild(el('div', 'fp-tunlabel', LBL(m)));
+        const label = el('div', 'fp-tunlabel', LBL(m));
+        if (CFG.edit.longPress.enabled) {
+          label.title = '长按这里可以把正文摊成一个大框改（下面这个框本来就是可改的）';
+          bindLongPress(label, m);
+        }
+        wrap.appendChild(label);
         wrap.appendChild(editorBlock(m, (g.editable || {})[m] || {}));
         box.appendChild(wrap);
       }
@@ -1453,6 +1719,10 @@
       sel.value = cur;
       sel.addEventListener('change', () => pickSingle(g, sel.value));
       box.appendChild(sel);
+      /* 下拉框是原生控件（一按就弹系统选择器），长按挂不上去；
+         所以它的"条目行"放在下面这一行：长按 = 改当前选中那一条的正文。 */
+      if (cur) box.appendChild(entryRows([cur], { subtle: true }));
+      else if (CFG.edit.longPress.enabled) box.appendChild(el('div', 'fp-modnote', '选中一条之后，下面会出现它的条目行——长按可以看/改它的正文。'));
       /* 选中的是可编辑条目就直接把输入框摊开，不用再去别处找 */
       if (cur && EDITABLE[cur]) {
         const wrap = el('div', 'fp-tunable');
@@ -1481,7 +1751,9 @@
       sw.appendChild(el('span', '', LBL(m)));
       if (p) sw.appendChild(el('i', '', sizeLabel(chars(p.content))));
       sw.title = p ? `${LBL(m)}\n${chars(p.content)} 字　当前：${on(p) ? '开' : '关'}` : `${LBL(m)}\n当前预设里没有这一条`;
-      if (p) sw.addEventListener('click', () => toggleOne(m, !on(p)));
+      if (CFG.edit.longPress.enabled && p) sw.title += '\n长按这一行改它的正文';
+      if (p) sw.addEventListener('click', onRowClick(() => toggleOne(m, !on(p))));
+      bindLongPress(sw, m);
       grid.appendChild(sw);
       if (EDITABLE[m]) grid.appendChild(editBtn(m));
     }
@@ -1606,6 +1878,11 @@
     version: VERSION,
     /** 生效中的外观配置（含夹取后的值）——预设生成器的「面板外观」用它做对照。 */
     config: () => ({ raw: CONFIG, effective: CFG, wallpaper: hasWallpaper() }),
+    /** 这份面板有哪些能力（编辑器导出前检查、以及"这份面板是不是新版"都看这个）。 */
+    caps: () => ({ longPressEdit: CFG.edit.longPress.enabled === true, longPressMs: CFG.edit.longPress.ms }),
+    /** 长按条目的那条路，程序化入口（给控制台与测试用；界面上就是长按）。 */
+    editEntry: (name) => openEntryEditor(name),
+    closeEditor: () => closeEntryEditor(),
     reload: () => reload(true),
     open: () => { state.open = true; writeLS(LS.open, true); render(); },
     close: () => { state.open = false; writeLS(LS.open, false); render(); },
@@ -1688,6 +1965,83 @@
       if (window.__FANO_PANEL__ === this) delete window.__FANO_PANEL__;
     },
   };
+
+  /* ══ FANO_ANTITRUNC_BEGIN ══════════════════════════════════════════════
+     脚本层防截断：拦截发往 api/backends/<后端>/generate 的请求，让模型把正文
+     走一个合成函数调用回传，从而绕开"纯文本流被渠道掐断"那条路。
+
+     这一段**由构建期注入**：tools/build-panel.mjs 把 panel/src/antitrunc.js 的
+     整体内容塞进下面那对标记之间（要改就去改 panel/src/antitrunc.js，
+     这个文件里那一段会被覆盖）。开关读 LS.antitrunc = fano-antitrunc-v1，
+     与顶部「🛡 防截断」按钮同一个键；出厂默认值来自 CONFIG.antitrunc.enabled。
+
+     位置：放在面板本体之后、按钮接线之前——它要用 LS 与 CFG（都在上面定义好了），
+     而创建实例时就按开关决定装不装拦截器，所以必须在按钮接线之前落地。
+     ═══════════════════════════════════════════════════════════════════ */
+  /* __FANO_ANTITRUNC_MODULE__ */
+  /* ══ FANO_ANTITRUNC_END ═══════════════════════════════════════════════ */
+
+  /* ── 顶部脚本按钮（酒馆助手）───────────────────────────────────────
+     两个按钮：⚙ 芳乃（开合面板）、🛡 防截断（切换脚本层防截断的开关）。
+     要注意的三件事（前两条是 v2.8.1 那边踩过的坑）：
+       · 按钮必须**静态声明**在预设脚本的 button.buttons 里、且 button.enabled = true，
+         否则酒馆助手根本不渲染按钮区——光在运行时调 API 没用（build-preset 已照此写，
+         它声明的名字就是 CONFIG.button 里的那两个）。
+       · 宿主不一定给这些 API（不同版本/沙箱），所以全部**特性检测**：拿不到就静默跳过，
+         绝不能让面板因为按钮接不上而挂掉。
+       · 「🛡 防截断」这里只切开关：真正的装/卸在 panel/src/antitrunc.js 里做
+         （ANTITRUNC.setEnabled，存档键 LS.antitrunc = fano-antitrunc-v1）。
+         按钮**只在这里注册一次**：antitrunc.js 那边故意不注册，否则一次点击会被
+         两处监听各切一次，等于点一下没反应。 */
+
+  /** 酒馆助手的宿主 API：不同版本把它挂在 globalThis / window / 最外层窗口 /
+      TavernHelper 上，逐个试，拿不到返回 null（特性检测，绝不抛）。 */
+  function hostApi(name) {
+    const scopes = [];
+    const add = (o) => { try { if (o && scopes.indexOf(o) < 0) scopes.push(o); } catch { /* 忽略 */ } };
+    add(globalThis);
+    add(window);
+    add(HOST.win);
+    for (const s of scopes.slice()) { add(s.TavernHelper); add(s.tavernHelper); }
+    for (const s of scopes) {
+      try { if (typeof s[name] === 'function') return s[name].bind(s); } catch { /* 忽略 */ }
+    }
+    return null;
+  }
+
+  try {
+    if (!CFG.button.enabled) {
+      console.log('[芳乃面板] CONFIG.button.enabled = false：顶部按钮既不静态声明也不接线');
+    } else {
+      const declBtn = hostApi('appendInexistentScriptButtons');
+      const getEvt = hostApi('getButtonEvent');
+      const onEvt = hostApi('eventOn');
+      if (declBtn) declBtn([{ name: CFG.button.panel, visible: true }, { name: CFG.button.antitrunc, visible: true }]);
+      if (getEvt && onEvt) {
+        onEvt(getEvt(CFG.button.panel), () => {
+          state.open = !state.open;
+          writeLS(LS.open, state.open);
+          render();
+        });
+        onEvt(getEvt(CFG.button.antitrunc), () => {
+          /* 切开关 = 真的装/卸拦截器（见 panel/src/antitrunc.js 的 setEnabled）。 */
+          const want = !ANTITRUNC.isEnabled();
+          const st = ANTITRUNC.setEnabled(want);
+          /* 报"实际发生了什么"：开关记下了但没装上，就得直说，不能报个"已开启"就完事。 */
+          if (st.enabled && !st.installed) {
+            notifyUser('脚本层防截断：开关已打开，但拦截器没装上（拿不到宿主窗口的 fetch）——'
+              + '详情见控制台 __FANO_ANTITRUNC__', 'err');
+          } else {
+            notifyUser(`脚本层防截断：${st.enabled ? '已开启' : '已关闭'}`, st.enabled ? 'ok' : 'info');
+          }
+        });
+      } else {
+        console.warn('[芳乃面板] 宿主没给按钮 API（appendInexistentScriptButtons / getButtonEvent / eventOn），顶部按钮不接线');
+      }
+    }
+  } catch (e) {
+    console.warn('[芳乃面板] 顶部按钮接线失败（不影响面板本体）', e);
+  }
 
   /* 启动失败也要说话，不能静默什么都不画 */
   try {

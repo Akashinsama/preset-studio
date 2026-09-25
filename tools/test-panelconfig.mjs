@@ -18,10 +18,10 @@ import { has, need, skip, isSynthetic } from './lib/fixtures.mjs';
 
 /* 夹具守卫：这套测试真加载面板，宿主数据来自 preview-host.js（由成品预设生成）；
    另外要一份预设当样本（优先 Izumi，其次成品）。都见 samples/README.md。 */
-need(path.join('panel', 'preview-host.js'), '面板外观配置测试（83 项）',
+need(path.join('panel', 'preview-host.js'), '面板外观配置测试（94 项）',
   'preview-host.js 由 node tools/build-preview.mjs 生成，它要成品预设');
 if (!has('Izumi_0914.json') && !has(path.join('preset', '芳乃预设.json'))) {
-  skip('面板外观配置测试（83 项）的预设样本', ['Izumi_0914.json', '或 preset/芳乃预设.json']);
+  skip('面板外观配置测试（94 项）的预设样本', ['Izumi_0914.json', '或 preset/芳乃预设.json']);
 }
 
 const ROOT = process.cwd();
@@ -119,7 +119,9 @@ async function boot(cfg) {
 /** 直接给面板源码（已经改好的），真加载一次 */
 async function bootWith(src) {
   const dom = makeDom();
-  const win = { innerWidth: 1280, innerHeight: 900, addEventListener() {} };
+  /* fetch 是脚本层防截断的落脚点（拦截器往它上面挂包装）——给它一个假的，
+     这样"装上了没有"才测得出来；不关心它的用例不受影响。 */
+  const win = { innerWidth: 1280, innerHeight: 900, addEventListener() {}, fetch: async () => new Response('', { status: 200 }) };
   const store = new Map();
   const ls = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -190,6 +192,66 @@ console.log('[1] 配置块的抠取与回写');
     const out = PC.patchConfig(PANEL_SRC, PC.mergeConfig(cfg, { ball: { size: 60 } }));
     return PC.extractConfig(out).title === cfg.title && PC.extractConfig(out).ball.size === 60;
   })());
+
+  /* 脚本层防截断的出厂开关 + 顶部按钮：这两段必须**同时**出现在 DEFAULT_CONFIG
+     和 clampConfig 里。只加一边的话，"面板外观"页一保存就会把用户关掉的开关写回
+     默认值——这正是本文件开头那条教训（当年 title 就这样丢过）。 */
+  ok('默认配置里有 antitrunc / button', 'antitrunc' in PC.DEFAULT_CONFIG && 'button' in PC.DEFAULT_CONFIG,
+    Object.keys(PC.DEFAULT_CONFIG).join('、'));
+  ok('出厂默认：防截断开、按钮声明开，名字就是那两个', (() => {
+    const D = PC.DEFAULT_CONFIG;
+    return D.antitrunc.enabled === true && D.button.enabled === true
+      && D.button.panel === '⚙ 芳乃' && D.button.antitrunc === '🛡 防截断';
+  })(), JSON.stringify({ a: PC.DEFAULT_CONFIG.antitrunc, b: PC.DEFAULT_CONFIG.button }));
+  ok('面板源码里那两段的出厂值也一样（默认值只许有一份说法）', (() => {
+    const c = PC.extractConfig(PANEL_SRC);
+    return c.antitrunc.enabled === true && c.button.enabled === true
+      && c.button.panel === '⚙ 芳乃' && c.button.antitrunc === '🛡 防截断';
+  })(), JSON.stringify(PC.extractConfig(PANEL_SRC).button));
+  ok('关掉这两项后「回写→再读」，值还在（外观页保存不丢字段）', (() => {
+    const off = PC.mergeConfig(cfg, {
+      antitrunc: { enabled: false },
+      button: { enabled: false, panel: '⚙ 我的面板', antitrunc: '🛡 防截断' },
+    });
+    const back = PC.extractConfig(PC.patchConfig(PANEL_SRC, off));
+    return back.antitrunc.enabled === false && back.button.enabled === false && back.button.panel === '⚙ 我的面板';
+  })());
+  ok('夹取不把显式 false 翻回 true', (() => {
+    const c = PC.clampConfig({ antitrunc: { enabled: false }, button: { enabled: false } });
+    return c.antitrunc.enabled === false && c.button.enabled === false;
+  })());
+  ok('夹取后这两个键都还在（少一个就会被写回默认值）',
+    ['antitrunc', 'button'].every((k) => k in PC.clampConfig({})), Object.keys(PC.clampConfig({})).join('、'));
+  ok('脏值 / 空名字：按开启 + 退回默认按钮名', (() => {
+    const c = PC.clampConfig({ antitrunc: { enabled: '随便' }, button: { panel: '   ', antitrunc: null } });
+    return c.antitrunc.enabled === true && c.button.panel === '⚙ 芳乃' && c.button.antitrunc === '🛡 防截断';
+  })(), JSON.stringify(PC.clampConfig({ antitrunc: { enabled: '随便' }, button: { panel: '   ' } }).button));
+  ok('经 clamp 往返不丢字段（同一份配置夹两次结果逐字相同）', (() => {
+    const once = PC.clampConfig(PC.mergeConfig(cfg, { antitrunc: { enabled: false } }));
+    const twice = PC.clampConfig(once);
+    return JSON.stringify(once) === JSON.stringify(twice) && twice.antitrunc.enabled === false;
+  })());
+
+  /* 长按条目改正文：同样的"成对"要求（DEFAULT_CONFIG 与 clampConfig 各一份，少一边就丢） */
+  ok('默认配置里有 edit（长按改正文）',
+    !!PC.DEFAULT_CONFIG.edit && PC.DEFAULT_CONFIG.edit.longPress.enabled === true
+    && PC.DEFAULT_CONFIG.edit.longPress.ms === 500,
+    JSON.stringify(PC.DEFAULT_CONFIG.edit));
+  ok('面板源码里那份出厂值也一样', (() => {
+    const e = PC.extractConfig(PANEL_SRC).edit;
+    return !!e && e.longPress.enabled === true && e.longPress.ms === 500;
+  })(), JSON.stringify(PC.extractConfig(PANEL_SRC).edit));
+  ok('长按毫秒被夹在 250–1500',
+    PC.clampConfig({ edit: { longPress: { ms: 10 } } }).edit.longPress.ms === 250
+    && PC.clampConfig({ edit: { longPress: { ms: 99999 } } }).edit.longPress.ms === 1500,
+    `${PC.clampConfig({ edit: { longPress: { ms: 10 } } }).edit.longPress.ms} / ${PC.clampConfig({ edit: { longPress: { ms: 99999 } } }).edit.longPress.ms}`);
+  ok('夹取不把 edit.longPress.enabled 的显式 false 翻回 true',
+    PC.clampConfig({ edit: { longPress: { enabled: false } } }).edit.longPress.enabled === false);
+  ok('关掉长按后「回写→再读」值还在（外观页保存不丢字段）', (() => {
+    const off = PC.mergeConfig(cfg, { edit: { longPress: { enabled: false, ms: 800 } } });
+    const back = PC.extractConfig(PC.patchConfig(PANEL_SRC, off)).edit;
+    return back.longPress.enabled === false && back.longPress.ms === 800;
+  })());
   ok('标题里的特殊字符不会把配置块写坏', (() => {
     const weird = '引号"\\换行\n中文🎋';
     const out = PC.patchConfig(PANEL_SRC, PC.mergeConfig(cfg, { title: weird }));
@@ -229,6 +291,26 @@ console.log('\n[2] 夹取逻辑：lib 与面板逐字段一致（防漂移）');
   ok('非法类型回落到默认（球 46 / 缩放松 1）', clampedBad.ball.size === 46 && clampedBad.layout.scale === 1,
     JSON.stringify({ ball: clampedBad.ball, scale: clampedBad.layout.scale, opacity: clampedBad.layout.opacity }));
   ok('null 也当"没写"处理（不透明回落到 1，不是 0.15）', clampedBad.layout.opacity === 1, String(clampedBad.layout.opacity));
+
+  /* 出厂开关真的生效：CONFIG.antitrunc.enabled=false 的预设，启动时就不该装拦截器 */
+  const offBoot = await boot({ antitrunc: { enabled: false } });
+  const AT = offBoot.win.__FANO_ANTITRUNC__;
+  ok('面板启动就建好了防截断实例（控制台 API 在）', !!AT && typeof AT.isEnabled === 'function' && AT.key === 'fano-antitrunc-v1',
+    AT ? String(AT.key) : '没有');
+  ok('出厂关着：启动即为关，一个包装都不留在 window.fetch 上',
+    AT.isEnabled() === false && AT.installed() === false);
+  const onBoot = await boot({});
+  ok('默认出厂开着 + 宿主有 fetch：启动就真装上了',
+    onBoot.win.__FANO_ANTITRUNC__.isEnabled() === true && onBoot.win.__FANO_ANTITRUNC__.installed() === true);
+
+  /* 长按改正文：出厂关掉时，面板自己就该说"没有这个能力"（编辑器导出前检查认这个） */
+  const noHold = await boot({ edit: { longPress: { enabled: false } } });
+  ok('出厂关掉长按 → caps().longPressEdit 是 false',
+    noHold.win.__FANO_PANEL__.caps().longPressEdit === false, JSON.stringify(noHold.win.__FANO_PANEL__.caps()));
+  const hold = await boot({ edit: { longPress: { enabled: true, ms: 800 } } });
+  ok('开着的话 caps() 报出能力，毫秒数跟着配置走',
+    hold.win.__FANO_PANEL__.caps().longPressEdit === true && hold.win.__FANO_PANEL__.caps().longPressMs === 800,
+    JSON.stringify(hold.win.__FANO_PANEL__.caps()));
 }
 
 /* ── 3. 配置真的生效（颜色 / 球 / 窗口 / 圆角 / 缩放）───────────── */

@@ -14,7 +14,8 @@
     "promptOnly": false,
     "id": "fano-fmt-strip",
     "minDepth": null,
-    "maxDepth": null
+    "maxDepth": null,
+    "_source": "Kemini（经作者的芳乃预设 v2.8.1 移植过来；替换串原样保留）"
   },
   {
     "disabled": false,
@@ -31,7 +32,8 @@
     "promptOnly": false,
     "id": "fano-tucao-card",
     "minDepth": null,
-    "maxDepth": null
+    "maxDepth": null,
+    "_source": "Kemini（经作者的芳乃预设 v2.8.1 移植过来；替换串原样保留）"
   },
   {
     "disabled": false,
@@ -48,7 +50,8 @@
     "promptOnly": false,
     "id": "fano-chat-card",
     "minDepth": null,
-    "maxDepth": null
+    "maxDepth": null,
+    "_source": "Kemini（经作者的芳乃预设 v2.8.1 移植过来；替换串原样保留）"
   },
   {
     "disabled": false,
@@ -65,7 +68,8 @@
     "promptOnly": true,
     "id": "fano-armor-strip-inner",
     "minDepth": null,
-    "maxDepth": null
+    "maxDepth": null,
+    "_source": "Kemini（经作者的芳乃预设 v2.8.1 移植过来；替换串原样保留）"
   },
   {
     "disabled": false,
@@ -82,7 +86,8 @@
     "promptOnly": true,
     "id": "fano-armor-strip-outer",
     "minDepth": null,
-    "maxDepth": null
+    "maxDepth": null,
+    "_source": "Kemini（经作者的芳乃预设 v2.8.1 移植过来；替换串原样保留）"
   },
   {
     "disabled": false,
@@ -99,7 +104,8 @@
     "promptOnly": false,
     "id": "fano-options-card",
     "minDepth": null,
-    "maxDepth": null
+    "maxDepth": null,
+    "_source": "Kemini（经作者的芳乃预设 v2.8.1 移植过来；替换串原样保留）"
   },
   {
     "disabled": false,
@@ -116,6 +122,7 @@
     "promptOnly": true,
     "id": "fano-options-strip",
     "minDepth": null,
-    "maxDepth": null
+    "maxDepth": null,
+    "_source": "Kemini（经作者的芳乃预设 v2.8.1 移植过来；替换串原样保留）"
   }
 ]

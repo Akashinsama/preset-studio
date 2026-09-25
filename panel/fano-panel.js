@@ -1,6 +1,6 @@
 /**
  * 芳乃 · 预设面板　（自动生成，请勿直接改这个文件）
- * 源：panel/src/panel-core.js + spec/groups.json
+ * 源：panel/src/panel-core.js + panel/src/antitrunc.js + spec/groups.json
  * 构建：node tools/build-panel.mjs
  * 子集：25 个　显示名映射：0 条　思维链标签互斥组：2 个
  */
@@ -652,7 +652,7 @@
   const EDITABLE = ((GROUPS.find((g) => g.mode === 'editable') || {}).editable) || {};
 
   const ID = 'fano-preset-panel-v1';
-  const VERSION = '0.4.0';
+  const VERSION = '0.5.0';
   const LS = {
     open: ID + '_open_v1',
     night: ID + '_night_v1',
@@ -662,6 +662,9 @@
     ball: ID + '_ball_v1',
     /* 整块隐藏：默认**不落盘**（刷新必然回来）；显式 persistHidden(true) 才写 */
     hidden: ID + '_hidden_v1',
+    /* 脚本层防截断的开关。键**故意不跟 ID 走**：沿用 v2.8.1 那边已有的 fano-antitrunc-v1，
+       这样从那一支换过来时，用户原来的开关状态不会丢。 */
+    antitrunc: 'fano-antitrunc-v1',
     plans: ID + '_plans_v1',
     collapsed: ID + '_collapsed_v1',
     expanded: ID + '_expanded_v1',
@@ -786,6 +789,21 @@
       dim: 0.15,         // 压暗层：壁纸太花时把文字压回可读
       dimColor: '#000000',
     },
+    /* 脚本层防截断（拦截 generate 请求，让正文走函数调用回传；实现见
+       panel/src/antitrunc.js）。这里只是**这份预设出厂时的开关**：
+       真正记状态的是 localStorage 的 fano-antitrunc-v1（顶部「🛡 防截断」按钮
+       写的就是它）。所以 enabled=false 表示"这份预设出厂不带防护"，
+       用户点过按钮之后就以他点的为准。 */
+    antitrunc: { enabled: true },
+    /* 顶部脚本按钮（酒馆助手）。名字必须和预设里**静态声明**的那两个一致，
+       否则酒馆渲染的是静态名字、面板去接另一个名字，按钮就成了摆设——
+       tools/build-preset.mjs 写 button.buttons 时读的正是这里，改完重新构建即可。
+       enabled=false = 不声明也不接线（那份预设不带顶部按钮）。 */
+    button: { enabled: true, panel: '⚙ 芳乃', antitrunc: '🛡 防截断' },
+    /* 长按条目改正文：按住 longPress.ms 毫秒，就打开那一条的正文编辑器。
+       enabled=false 就关掉这个手势（面板上不会提"长按"两个字）。
+       改的是**预设里那一条的正文**，保存时和其它操作一样只写回一次。 */
+    edit: { longPress: { enabled: true, ms: 500 } },
   };
   /* ══ FANO_PANEL_CONFIG_END ════════════════════════════════════════════ */
 
@@ -858,6 +876,23 @@
       blur: num(CONFIG?.wallpaper?.blur, 0, 0, 40),
       dim: num(CONFIG?.wallpaper?.dim, 0.15, 0, 0.95),
       dimColor: String(CONFIG?.wallpaper?.dimColor ?? '#000000'),
+    },
+    /* 只认显式 false：没写 / 写错 / null 都当**开启**（默认要有这一层防护）。
+       字段顺序与 tools/gui/lib/panelconfig.js 的 clampConfig() 必须一致：
+       test-panelconfig.mjs 会把两边的生效值逐字段（含顺序）比对。 */
+    antitrunc: {
+      enabled: CONFIG?.antitrunc?.enabled !== false,
+    },
+    button: {
+      enabled: CONFIG?.button?.enabled !== false,
+      panel: String(CONFIG?.button?.panel ?? '⚙ 芳乃').trim() || '⚙ 芳乃',
+      antitrunc: String(CONFIG?.button?.antitrunc ?? '🛡 防截断').trim() || '🛡 防截断',
+    },
+    edit: {
+      longPress: {
+        enabled: CONFIG?.edit?.longPress?.enabled !== false,
+        ms: Math.round(num(CONFIG?.edit?.longPress?.ms, 500, 250, 1500)),
+      },
     },
   };
   const hasWallpaper = () => !!CFG.wallpaper.url;
@@ -977,6 +1012,8 @@
     bundles: readLS(LS.bundle, {}),
     /** 在非自定义模块里手动展开了哪些编辑框。 */
     editors: new Set(),
+    /** 长按条目打开的那个正文编辑器：当前正在改哪一条（null = 没开）。 */
+    editTarget: null,
     /** 位置校验：跑飞时只尝试换挂载点一次，避免递归。 */
     remountTried: false,
     lastPlacement: null,
@@ -1249,6 +1286,204 @@
   function toggleOne(name, enabled) {
     if (!find(name)) return toast('当前预设里没有这一条：' + name, 'err');
     apply([{ name, enabled }], (enabled ? '已开 ' : '已关 ') + name);
+  }
+
+  /* ══ 长按条目 → 改这一条的正文 ══════════════════════════════════════
+     为什么要有这个：面板上大多数条目只有一个开关/下拉，正文看不到也改不了；
+     想看某一条写了什么、顺手改两句，原来只能去酒馆的预设编辑器里翻。
+
+     手势规则（都写在 CONFIG.edit.longPress 里，enabled=false 就整个关掉）：
+       · 按住 ms 毫秒算长按；
+       · 期间指针移动超过 8px 就取消——手机上那是"在滚动"，不是"在长按"；
+       · 长按触发后，松手跟来的那次 click **会被吞掉**，否则会顺手把这一条开关掉；
+       · 触发时那一行高亮一下，手机支持震动就轻震一下（反馈，不是效果）。
+     落在哪儿：
+       · 多选开关排 / 破甲档位 —— 每一行（.fp-sw）都能长按；
+       · 单选下拉 —— 下拉本身是原生控件（一按就弹系统选择器），所以它下面那一行
+         "当前：<条目>" 就是它的条目行，长按它改当前这一条；
+       · 只读区（固定分组）—— 每个名字一个可长按的条目行；
+       · 注入位标记（marker：聊天记录/角色卡/世界书这些位置标记）**只给看**，
+         不给保存：它们的正文本来就该是空的，往里写东西会直接坏掉注入。 */
+
+  /** 能力标记：编辑器导出前检查靠这一行判断"这份面板脚本会不会长按改正文"。
+      改这段代码时**别删这一行**（删了编辑器就认不出来了）。 */
+  const CAP_LONGPRESS_EDIT = 'FANO_PANEL_CAP_LONGPRESS_EDIT';
+
+  /** 长按期间指针允许的抖动（px）。超过就当成滚动/拖动，取消。 */
+  const HOLD_CANCEL_PX = 8;
+  /** 长按已经触发过：紧跟的那一次 click 要吞掉（见 bindGestureOnce 里的捕获监听）。 */
+  let swallowNextClick = false;
+
+  /** 这一条是不是酒馆的注入位标记（正文必须为空，改了就坏）。 */
+  const isMarker = (name) => {
+    const p = find(name);
+    return !!(p && p.marker === true);
+  };
+
+  /** 长按触发时的反馈：能震就轻震一下（拿不到就当没有，绝不抛）。 */
+  function buzz() {
+    try {
+      const nav = HOST.win.navigator || (typeof navigator !== 'undefined' ? navigator : null);
+      if (nav && typeof nav.vibrate === 'function') nav.vibrate(15);
+    } catch { /* 忽略 */ }
+  }
+
+  /** 打开某一条的正文编辑器（浮层）。 */
+  function openEntryEditor(name) {
+    if (!find(name)) return toast('当前预设里没有这一条：' + LBL(name), 'err');
+    state.editTarget = name;
+    render();
+    /* 打开就把光标放进去（省一次点击）。拿不到就拉倒。 */
+    try {
+      const mask = HOST.doc.getElementById(ID + '-edit');
+      const ta = mask && typeof mask.querySelector === 'function' ? mask.querySelector('textarea') : null;
+      if (ta && !isMarker(name) && typeof ta.focus === 'function') ta.focus();
+    } catch { /* 忽略 */ }
+    return name;
+  }
+
+  /** 关掉浮层（不写回）。 */
+  function closeEntryEditor() {
+    if (state.editTarget === null) return false;
+    state.editTarget = null;
+    render();
+    return true;
+  }
+
+  /**
+   * 把长按手势挂到某一行上。行里点一下该干嘛还干嘛（开关/选中），
+   * 只有"按住不动"才是改正文——两件事不抢同一个手势。
+   */
+  function bindLongPress(node, name) {
+    if (!CFG.edit.longPress.enabled || !name || !node || typeof node.addEventListener !== 'function') return;
+    let timer = null;
+    let sx = 0;
+    let sy = 0;
+    const cancel = () => {
+      if (timer !== null) { clearTimeout(timer); timer = null; }
+      try { node.classList.remove('fp-hold'); } catch { /* 忽略 */ }
+    };
+    node.addEventListener('pointerdown', (e) => {
+      if (e && typeof e.button === 'number' && e.button !== 0) return;   // 只认左键/触摸
+      /* 下拉框自己要用这个手势（点一下就是选它），别抢 */
+      if (e && e.target && typeof e.target.closest === 'function' && e.target.closest('select')) return;
+      swallowNextClick = false;         // 上一次长按留下的"吞一次"不该跨到这一次
+      sx = e ? e.clientX : 0;
+      sy = e ? e.clientY : 0;
+      try { node.classList.add('fp-hold'); } catch { /* 忽略 */ }
+      timer = setTimeout(() => {
+        timer = null;
+        swallowNextClick = true;        // 松手跟来的那次 click 由 onRowClick 吞掉
+        try { node.classList.remove('fp-hold'); } catch { /* 忽略 */ }
+        buzz();
+        openEntryEditor(name);
+      }, CFG.edit.longPress.ms);
+    });
+    node.addEventListener('pointermove', (e) => {
+      if (timer === null) return;
+      const dx = Math.abs((e ? e.clientX : 0) - sx);
+      const dy = Math.abs((e ? e.clientY : 0) - sy);
+      if (dx + dy > HOLD_CANCEL_PX) cancel();
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(ev, cancel);
+  }
+
+  /**
+   * 条目行的"点一下"统一走这里：长按刚开过编辑器的那一次点击会被吞掉。
+   *
+   * 为什么必须由**行**自己拦：长按会触发一次重渲染，原来那一行已经从文档里摘下来了，
+   * 而浏览器仍可能把随后的 click 派发到这个**已摘下的节点**上——那时行里"点一下开关"
+   * 照样会跑，于是长按一下就顺手把条目开关掉了，或者把刚打开的东西又切走。
+   * 文档级的捕获监听救不了（节点已不在文档树里），所以守卫必须在行内部。
+   */
+  function onRowClick(fn) {
+    return (e) => {
+      if (swallowNextClick) {
+        swallowNextClick = false;
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        return;
+      }
+      fn(e);
+    };
+  }
+
+  /** 一个可长按的条目行（名字 + 字数）：只读区、单选组的"当前条目"都用它。
+      opts.onPick 给了就是"点一下选中它"，没给就是"点一下打开正文编辑器"。 */
+  function entryRow(name, opts = {}) {
+    const p = find(name);
+    const row = el('div', 'fp-sw');
+    row.dataset.on = p && on(p) ? '1' : '0';
+    if (!p) row.dataset.miss = '1';
+    if (opts.subtle) row.dataset.subtle = '1';
+    row.appendChild(el('span', '', LBL(name)));
+    if (p) row.appendChild(el('i', '', sizeLabel(chars(p.content))));
+    const foot = isMarker(name)
+      ? '注入位标记：正文必须为空，只能看'
+      : (CFG.edit.longPress.enabled ? `长按改正文（按住 ${CFG.edit.longPress.ms}ms）` : '');
+    row.title = (p ? `${LBL(name)}\n${chars(p.content)} 字` : `${LBL(name)}\n当前预设里没有这一条`)
+      + (foot ? `\n${foot}` : '');
+    if (p) row.addEventListener('click', onRowClick(() => (opts.onPick ? opts.onPick(name) : openEntryEditor(name))));
+    bindLongPress(row, name);
+    return row;
+  }
+
+  /** 长按开出来的正文编辑器浮层（盖在窗口里）。 */
+  function entryEditorBox(name) {
+    const p = find(name);
+    const marker = isMarker(name);
+    const mask = el('div', 'fp-editmask');
+    mask.id = ID + '-edit';
+    /* 点空白处关掉；点内容不关（否则一不小心就把没保存的改动丢了） */
+    mask.addEventListener('click', (e) => { if (!e || e.target === mask) closeEntryEditor(); });
+
+    const box = el('div', 'fp-editbox');
+    const head = el('div', 'fp-rowhead');
+    head.appendChild(el('b', 'fp-editname', LBL(name)));
+    head.appendChild(el('span', 'fp-badge', p && on(p) ? '已启用' : '未启用'));
+    const count = el('span', 'fp-note', `${chars(p.content)} 字`);
+    head.appendChild(count);
+    box.appendChild(head);
+
+    if (marker) {
+      box.appendChild(el('div', 'fp-modnote',
+        `这是酒馆的**注入位标记**（${p.identifier || '位置标记'}）：它的正文本来就该是空的，`
+        + '往这里写东西会让世界书/角色卡/聊天记录进不了上下文。所以这一条只给看，不给改。'));
+    } else {
+      box.appendChild(el('div', 'fp-modnote',
+        `改的是预设里「${name}」这一条的正文，保存时和其它操作一样**只写回一次**。`
+        + '（长按面板上任一条目都能打开这里。）'));
+    }
+
+    const ta = el('textarea', 'fp-textarea');
+    ta.value = p.content || '';
+    if (marker) ta.readOnly = true;
+    ta.addEventListener('input', () => { count.textContent = `${chars(ta.value)} 字（保存后生效）`; });
+    box.appendChild(ta);
+
+    const chips = el('div', 'fp-chips');
+    if (!marker) {
+      chips.appendChild(el('span', 'fp-mini', '保存')).addEventListener('click', () => {
+        const text = ta.value;
+        state.editTarget = null;      // 先关掉浮层再写回：写回成功/失败都由 toast 说话
+        saveContent(name, text);
+      });
+      chips.appendChild(el('span', 'fp-mini', '撤销改动')).addEventListener('click', () => {
+        ta.value = (find(name) || {}).content || '';
+        count.textContent = `${chars(ta.value)} 字`;
+      });
+    }
+    chips.appendChild(el('span', 'fp-mini', marker ? '知道了' : '关闭')).addEventListener('click', () => closeEntryEditor());
+    box.appendChild(chips);
+
+    mask.appendChild(box);
+    return mask;
+  }
+
+  /** 只读区（固定分组）的条目行：不改开关，只给长按看/改正文。 */
+  function entryRows(members, opts = {}) {
+    const grid = el('div', 'fp-switches');
+    for (const m of members) grid.appendChild(entryRow(m, opts));
+    return grid;
   }
 
   /**
@@ -1549,6 +1784,21 @@
 .fp-editbtn{border-style:dashed;color:var(--fp-text-dim)}
 .fp-editbtn[data-on="1"]{border-style:solid}
 
+/* 长按条目改正文：按住时先给反馈，松手前一直亮着（.fp-hold 由手势加上去） */
+.fp-sw{touch-action:pan-y}
+.fp-sw.fp-hold{border-color:var(--fp-accent);background:var(--fp-accent-soft);
+  box-shadow:0 0 0 3px var(--fp-accent-soft);transform:scale(.97)}
+.fp-sw[data-subtle="1"]{font-size:11px;color:var(--fp-text-faint)}
+
+/* 长按开出来的正文编辑器：盖在窗口里的一层（点空白处关掉） */
+.fp-editmask{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
+  padding:14px;background:rgba(0,0,0,0.28);border-radius:inherit}
+.fp-editbox{display:flex;flex-direction:column;gap:7px;width:100%;max-height:100%;overflow:auto;
+  padding:11px;border-radius:12px;border:1px solid var(--fp-border-strong);background:var(--fp-bg-raised);
+  box-shadow:0 8px 28px var(--fp-shadow)}
+.fp-editbox .fp-textarea{min-height:180px}
+.fp-editname{font-size:12.5px;color:var(--fp-text)}
+
 .fp-rowhead{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
 .fp-note{font-size:10.5px;color:var(--fp-text-faint)}
 .fp-badge{font-size:10px;padding:0 5px;border-radius:99px;border:1px solid var(--fp-border-strong);
@@ -1762,6 +2012,10 @@
     }
     win.appendChild(body);
 
+    /* 长按条目开出来的正文编辑器：盖在窗口内容之上的一层 */
+    if (state.editTarget !== null && find(state.editTarget)) win.appendChild(entryEditorBox(state.editTarget));
+    else if (state.editTarget !== null) state.editTarget = null;   // 那一条没了就自己收起来
+
     /* 脚 */
     const foot = el('div', 'fp-foot');
     const chips = el('div', 'fp-chips');
@@ -1908,6 +2162,8 @@
       sel.value = cur;
       sel.addEventListener('change', () => pickTunableSingle(g, t, sel.value));
       wrap.appendChild(sel);
+      /* 同 single 组：档位的"条目行"放在下拉框下面，长按改当前这一条的正文 */
+      if (cur) wrap.appendChild(entryRows([cur], { subtle: true }));
       if (cur && EDITABLE[cur]) {
         const sub = el('div', 'fp-tunable');
         sub.appendChild(el('div', 'fp-tunlabel', `${LBL(cur)} · 自己填`));
@@ -1928,7 +2184,9 @@
       sw.appendChild(el('span', '', LBL(m)));
       if (p) sw.appendChild(el('i', '', sizeLabel(chars(p.content))));
       sw.title = p ? `${LBL(m)}\n${chars(p.content)} 字　当前：${on(p) ? '开' : '关'}` : `${LBL(m)}\n当前预设里没有这一条`;
-      if (p) sw.addEventListener('click', () => toggleOne(m, !on(p)));
+      if (CFG.edit.longPress.enabled && p) sw.title += '\n长按这一行改它的正文';
+      if (p) sw.addEventListener('click', onRowClick(() => toggleOne(m, !on(p))));
+      bindLongPress(sw, m);
       grid.appendChild(sw);
       if (EDITABLE[m]) grid.appendChild(editBtn(m));
     }
@@ -2010,10 +2268,13 @@
       return box;
     }
 
-    /* fixed：不暴露 */
+    /* fixed：不给开关（酒馆内置槽位与核心结构），但**正文可以看、可以改**——
+       注入位标记那几条只给看（正文必须为空）。 */
     if (g.mode === 'fixed') {
-      box.appendChild(el('div', 'fp-modnote', `面板不碰这 ${g.members.length} 条（酒馆内置槽位与核心结构）。`));
-      box.appendChild(el('div', 'fp-modnote', g.members.join('、')));
+      box.appendChild(el('div', 'fp-modnote',
+        `面板不碰这 ${g.members.length} 条的开关（酒馆内置槽位与核心结构）`
+        + (CFG.edit.longPress.enabled ? '；长按名字可以看/改它的正文。' : '。')));
+      box.appendChild(entryRows(g.members, { subtle: true }));
       return box;
     }
 
@@ -2022,7 +2283,12 @@
       if (g.note) box.appendChild(el('div', 'fp-modnote', g.note));
       for (const m of g.members) {
         const wrap = el('div', 'fp-tunable');
-        wrap.appendChild(el('div', 'fp-tunlabel', LBL(m)));
+        const label = el('div', 'fp-tunlabel', LBL(m));
+        if (CFG.edit.longPress.enabled) {
+          label.title = '长按这里可以把正文摊成一个大框改（下面这个框本来就是可改的）';
+          bindLongPress(label, m);
+        }
+        wrap.appendChild(label);
         wrap.appendChild(editorBlock(m, (g.editable || {})[m] || {}));
         box.appendChild(wrap);
       }
@@ -2047,6 +2313,10 @@
       sel.value = cur;
       sel.addEventListener('change', () => pickSingle(g, sel.value));
       box.appendChild(sel);
+      /* 下拉框是原生控件（一按就弹系统选择器），长按挂不上去；
+         所以它的"条目行"放在下面这一行：长按 = 改当前选中那一条的正文。 */
+      if (cur) box.appendChild(entryRows([cur], { subtle: true }));
+      else if (CFG.edit.longPress.enabled) box.appendChild(el('div', 'fp-modnote', '选中一条之后，下面会出现它的条目行——长按可以看/改它的正文。'));
       /* 选中的是可编辑条目就直接把输入框摊开，不用再去别处找 */
       if (cur && EDITABLE[cur]) {
         const wrap = el('div', 'fp-tunable');
@@ -2075,7 +2345,9 @@
       sw.appendChild(el('span', '', LBL(m)));
       if (p) sw.appendChild(el('i', '', sizeLabel(chars(p.content))));
       sw.title = p ? `${LBL(m)}\n${chars(p.content)} 字　当前：${on(p) ? '开' : '关'}` : `${LBL(m)}\n当前预设里没有这一条`;
-      if (p) sw.addEventListener('click', () => toggleOne(m, !on(p)));
+      if (CFG.edit.longPress.enabled && p) sw.title += '\n长按这一行改它的正文';
+      if (p) sw.addEventListener('click', onRowClick(() => toggleOne(m, !on(p))));
+      bindLongPress(sw, m);
       grid.appendChild(sw);
       if (EDITABLE[m]) grid.appendChild(editBtn(m));
     }
@@ -2200,6 +2472,11 @@
     version: VERSION,
     /** 生效中的外观配置（含夹取后的值）——预设生成器的「面板外观」用它做对照。 */
     config: () => ({ raw: CONFIG, effective: CFG, wallpaper: hasWallpaper() }),
+    /** 这份面板有哪些能力（编辑器导出前检查、以及"这份面板是不是新版"都看这个）。 */
+    caps: () => ({ longPressEdit: CFG.edit.longPress.enabled === true, longPressMs: CFG.edit.longPress.ms }),
+    /** 长按条目的那条路，程序化入口（给控制台与测试用；界面上就是长按）。 */
+    editEntry: (name) => openEntryEditor(name),
+    closeEditor: () => closeEntryEditor(),
     reload: () => reload(true),
     open: () => { state.open = true; writeLS(LS.open, true); render(); },
     close: () => { state.open = false; writeLS(LS.open, false); render(); },
@@ -2282,6 +2559,1720 @@
       if (window.__FANO_PANEL__ === this) delete window.__FANO_PANEL__;
     },
   };
+
+  /* ══ FANO_ANTITRUNC_BEGIN ══════════════════════════════════════════════
+     脚本层防截断：拦截发往 api/backends/<后端>/generate 的请求，让模型把正文
+     走一个合成函数调用回传，从而绕开"纯文本流被渠道掐断"那条路。
+
+     这一段**由构建期注入**：tools/build-panel.mjs 把 panel/src/antitrunc.js 的
+     整体内容塞进下面那对标记之间（要改就去改 panel/src/antitrunc.js，
+     这个文件里那一段会被覆盖）。开关读 LS.antitrunc = fano-antitrunc-v1，
+     与顶部「🛡 防截断」按钮同一个键；出厂默认值来自 CONFIG.antitrunc.enabled。
+
+     位置：放在面板本体之后、按钮接线之前——它要用 LS 与 CFG（都在上面定义好了），
+     而创建实例时就按开关决定装不装拦截器，所以必须在按钮接线之前落地。
+     ═══════════════════════════════════════════════════════════════════ */
+  /* ── 以下是 panel/src/antitrunc.js 的内容（构建期注入；要改请改那个文件）── */
+/**
+ * 芳乃 · 防截断运输（脚本层）　v1.0
+ * ---------------------------------------------------------------------------
+ * 干什么：拦截发往 api/backends/<后端名>/generate 的请求，往请求里塞一个合成的
+ *        function-call，让模型把最终正文放进那个函数的 content 参数回传；再把
+ *        finish_reason 由 "tool_calls" 改回 "stop"、剥掉 tool_calls。正文于是绕过
+ *        「纯文本流被渠道掐断」那条路，从函数调用参数里完整落地。
+ *        OpenAI 方言读 choices[].delta.tool_calls[].function.arguments，
+ *        Google 方言读 candidates[].content.parts[].functionCall.args。
+ *
+ * 出处：从「芳乃预设 v2.8.1」那条 13.8 万字脚本里**原样抽出**的同一段
+ *       （原作是 Kemini Dramatron v3.1 的 scripts[0]，作者 Kemini）。
+ *       素材：_port/antitrunc-extracted.txt。移植前后逐项对照见
+ *       spec/防截断移植对照.md —— 哪些搬来了、哪些没搬、为什么，都写在里面。
+ *
+ * 这段代码怎么进面板：panel/src/panel-core.js 里有一对
+ *       FANO_ANTITRUNC_BEGIN/END 标记，tools/build-panel.mjs 把**这个文件整体**
+ *       塞进那两个标记之间。所以：
+ *         · 这里不写 import / export，也不要顶层副作用（只能是一个函数声明）；
+ *         · 里面所有名字都活在 createAntiTruncation() 这个函数作用域里，
+ *           不会和 panel-core.js 里的同名变量打架。
+ *       PORTED-CORE 标记之间那一段由 _port/mk-antitrunc.mjs 从素材**机械搬入**，
+ *       手改那一段会在下次跑那个脚本时被覆盖。
+ *
+ * 开关：读 localStorage 里调用方传进来的键（面板传 LS.antitrunc，即
+ *       fano-antitrunc-v1 —— 与 v2.8.1 共用同一个键，换过来时开关状态不丢）。
+ *       默认**开启**；只认 "1"/"0"/"true"/"false"，认不出来的值一律按开启。
+ * 控制台：globalThis.__FANO_ANTITRUNC__（也是 v2.8.1 那边那套：
+ *       isEnabled / enable / disable / lastRun / anchor / interceptor）。
+ *       enable()/disable() 会连装/卸一起做，返回 { enabled, installed }。
+ *
+ * @param {object} [options]
+ * @param {string} [options.key]      开关的 localStorage 键（默认 fano-antitrunc-v1）
+ * @param {boolean} [options.defaultOn] 键不存在时算开还是关（默认 true）
+ * @param {(msg:string)=>void} [options.onNotice] 渠道明显不支持时的提醒出口
+ *        （面板传 notifyUser；不传就退回 toastr / 控制台。只提醒，绝不自动关开关）
+ */
+function createAntiTruncation(options) {
+  'use strict';
+  const opt = options || {};
+  /** 开关的存档键。默认值与 v2.8.1 那边是同一个：换过来时用户的选择不会丢。 */
+  const LS_KEY = String(opt.key || 'fano-antitrunc-v1');
+  /** 键还没写过时的出厂默认（面板传 CONFIG.antitrunc.enabled）。 */
+  const DEFAULT_ON = opt.defaultOn !== false;
+  /** 提醒出口：面板会传自己的 notifyUser 进来；单独用时退回 toastr / 控制台。 */
+  const notice = typeof opt.onNotice === 'function' ? opt.onNotice : defaultNotice;
+
+  /** 默认提醒出口（不接面板时用）。 */
+  function defaultNotice(msg) {
+    try {
+      if (typeof toastr !== 'undefined' && toastr && toastr.info) { toastr.info(msg); return; }
+    } catch { /* 忽略 */ }
+    try {
+      const t = globalThis.toastr;
+      if (t && t.info) { t.info(msg); return; }
+    } catch { /* 忽略 */ }
+    eventLog.info(msg);
+  }
+
+  /**
+   * 宿主窗口 = 从当前窗口一路往上爬到**最外层的同源窗口**。
+   *
+   * 为什么不能只往上看一层（v2.8.1 那版写的是 window.parent ?? window）：
+   *   酒馆助手脚本本身跑在 iframe 里，手机上还可能是**嵌套** iframe；而
+   *   generate 请求是**最外层那个窗口**发的。只上一层就装到中间层去了，
+   *   表现是"开关开着、却什么也没拦截到"。
+   *   panel-core.js 里挂载点 HOST 用的是同一套爬法（那边踩过的坑是
+   *   "只查 iframe 的 document"，于是面板渲染在看不见的框里）。
+   *
+   * 跨域（parent.document 抛异常）时返回 null：**宁可不装**，也不把拦截器装在
+   * 一个根本不发请求的窗口上，然后让开关看起来是开着的。
+   */
+  function hostWindow() {
+    try {
+      let w = window;
+      let depth = 0;
+      while (w.parent && w.parent !== w) {
+        const next = w.parent;
+        void next.document;              /* 跨域在这里就会抛 */
+        w = next;
+        depth++;
+        if (depth > 10) break;           /* 防御：不正常的嵌套 */
+      }
+      return w;
+    } catch {
+      return null;
+    }
+  }
+
+  /* ══ PORTED-CORE-BEGIN ═══════════════════════════════════════════════ */
+  const eventLog = (() => {
+    const toText = (v) => {
+      try { return typeof v === "string" ? v : JSON.stringify(v); } catch { return String(v); }
+    };
+    const emit = (level, msg) => {
+      const line = "[防截断] " + toText(msg);
+      try {
+        if (level === "warn") console.warn(line);
+        else if (level === "error") console.error(line);
+        else console.log(line);
+      } catch { /* 控制台不可用时静默 */ }
+    };
+    return {
+      info: (m) => emit("info", m),
+      warn: (m) => emit("warn", m),
+      error: (m) => emit("error", m),
+      debug: (m) => emit("debug", m)
+    };
+  })();
+  const TRANSPORT_CONTROL_ANCHOR = "<format>";
+  const HIGH_SURROGATE_START = 55296;
+  const HIGH_SURROGATE_END = 56319;
+  const LOW_SURROGATE_START = 56320;
+  const LOW_SURROGATE_END = 57343;
+  const MAX_KEY_SCAN = 500;
+
+  function readArgsContent(args) {
+    if (typeof args === "string") {
+      if (!args) return void 0;
+      try {
+        const value = JSON.parse(args).content;
+        if (typeof value === "string") return value;
+        return void 0;
+      } catch {
+        const decoder = new IncrementalContentDecoder();
+        const salvaged = decoder.feed(args) + decoder.finish();
+        if (!salvaged) return void 0;
+        eventLog.warn("anti-truncation: transport arguments were cut off, salvaged what parsed");
+        return salvaged;
+      }
+    }
+    if (args && typeof args === "object") {
+      const value = args.content;
+      return typeof value === "string" ? value : void 0;
+    }
+    return void 0;
+  }
+  function describeError(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  function resolveUrl(input) {
+    try {
+      if (typeof input === "string") return input;
+      if (input instanceof URL) return input.href;
+      if (input && typeof input === "object" && "url" in input) {
+        const url = input.url;
+        return typeof url === "string" ? url : void 0;
+      }
+    } catch {
+    }
+    return void 0;
+  }
+  async function readRequestBody(args) {
+    const [input, init] = args;
+    if (init?.body !== void 0 && init.body !== null) {
+      return typeof init.body === "string" ? init.body : void 0;
+    }
+    if (input instanceof Request) {
+      return await input.clone().text();
+    }
+    return void 0;
+  }
+  function withBody(args, body) {
+    const [input, init] = args;
+    if (init?.body !== void 0 && init.body !== null) {
+      return [input, { ...init, body }];
+    }
+    if (input instanceof Request) {
+      return [new Request(input, { body }), init];
+    }
+    return args;
+  }
+  const EMPTY_RUN = {
+    decodedChars: 0,
+    emittedChars: 0,
+    decodedChunks: 0,
+    streamed: false,
+    endedCleanly: false,
+    conflict: false,
+    plainWon: false
+  };
+
+  class IncrementalContentDecoder {
+    state = "init";
+    keyScan = "";
+    /** An escape sequence cut in half by a fragment boundary. */
+    pendingEscape = "";
+    /** A quote held back because we cannot yet tell if it closes the string. */
+    pendingQuote = false;
+    highSurrogate = 0;
+    emittedAny = false;
+    get hasEmitted() {
+      return this.emittedAny;
+    }
+    get isComplete() {
+      return this.state === "completed";
+    }
+    /** Feed one raw fragment; returns the text that is now safe to show. */
+    feed(fragment) {
+      if (!fragment) return "";
+      let out = "";
+      let source = fragment;
+      if (this.pendingQuote) {
+        this.pendingQuote = false;
+        const rest = source.replace(/^[\s]*/, "");
+        if (rest.startsWith("}") || rest === "") {
+          this.state = "completed";
+          return "";
+        }
+        out += '"';
+      }
+      if (this.pendingEscape) {
+        source = this.pendingEscape + source;
+        this.pendingEscape = "";
+      }
+      let i = 0;
+      while (i < source.length) {
+        const char = source[i];
+        switch (this.state) {
+          case "init":
+            if (char === "{" || char === '"') {
+              this.state = "lookingForKey";
+              if (char === '"') this.keyScan = '"';
+            }
+            i += 1;
+            break;
+          case "lookingForKey":
+            this.keyScan += char;
+            i += 1;
+            if (this.keyScan.includes('"content"')) {
+              this.state = "lookingForColon";
+              this.keyScan = "";
+            } else if (this.keyScan.length > MAX_KEY_SCAN) {
+              this.state = "error";
+            }
+            break;
+          case "lookingForColon":
+            if (char === ":") this.state = "lookingForQuote";
+            i += 1;
+            break;
+          case "lookingForQuote":
+            if (char === '"') {
+              this.state = "inString";
+            } else if (!/\s/.test(char)) {
+              this.state = "error";
+            }
+            i += 1;
+            break;
+          case "inString": {
+            const consumed = this.consumeStringChar(source, i);
+            out += consumed.text;
+            if (consumed.stop) {
+              i = source.length;
+            } else {
+              i += consumed.width;
+            }
+            break;
+          }
+          case "completed": {
+            const rest = source.slice(i).trim();
+            if (rest !== "" && rest !== "}" && rest !== "},") {
+              this.state = "inString";
+              break;
+            }
+            i = source.length;
+            break;
+          }
+          case "error":
+            i = source.length;
+            break;
+        }
+      }
+      if (out) this.emittedAny = true;
+      return out;
+    }
+    /**
+     * Consume one logical character of the JSON string starting at `index`.
+     *
+     * `stop` means the rest of this fragment must not be processed — either the string ended
+     * or an incomplete tail was stashed for the next fragment.
+     */
+    consumeStringChar(source, index) {
+      const char = source[index];
+      if (char === "\\") {
+        const next = source[index + 1];
+        if (next === void 0) {
+          this.pendingEscape = "\\";
+          return { text: "", width: 0, stop: true };
+        }
+        if (next === "u") {
+          const hex = source.slice(index + 2, index + 6);
+          if (hex.length < 4) {
+            this.pendingEscape = source.slice(index);
+            return { text: "", width: 0, stop: true };
+          }
+          const code = Number.parseInt(hex, 16);
+          if (Number.isNaN(code)) {
+            return { text: `\\u${hex}`, width: 6, stop: false };
+          }
+          if (code >= HIGH_SURROGATE_START && code <= HIGH_SURROGATE_END) {
+            this.highSurrogate = code;
+            return { text: "", width: 6, stop: false };
+          }
+          if (code >= LOW_SURROGATE_START && code <= LOW_SURROGATE_END && this.highSurrogate) {
+            const combined = 65536 + (this.highSurrogate - HIGH_SURROGATE_START << 10) + (code - LOW_SURROGATE_START);
+            this.highSurrogate = 0;
+            return { text: String.fromCodePoint(combined), width: 6, stop: false };
+          }
+          return { text: String.fromCharCode(code), width: 6, stop: false };
+        }
+        const simple = SIMPLE_ESCAPES[next];
+        if (simple !== void 0) {
+          return { text: simple, width: 2, stop: false };
+        }
+        return { text: char + next, width: 2, stop: false };
+      }
+      if (char === '"') {
+        const rest = source.slice(index + 1);
+        if (rest === "") {
+          this.pendingQuote = true;
+          return { text: "", width: 0, stop: true };
+        }
+        if (rest.replace(/^[\s]*/, "").startsWith("}")) {
+          this.state = "completed";
+          return { text: "", width: 0, stop: true };
+        }
+        return { text: '"', width: 1, stop: false };
+      }
+      return { text: char, width: 1, stop: false };
+    }
+    /**
+     * Flush whatever is still held back once the stream is over.
+     *
+     * A dangling escape is emitted verbatim: showing the user a stray backslash is better
+     * than silently dropping characters they paid for.
+     */
+    finish() {
+      let out = "";
+      if (this.pendingQuote && !this.emittedAny) {
+        out += '"';
+      }
+      this.pendingQuote = false;
+      if (this.pendingEscape) {
+        out += this.pendingEscape;
+        this.pendingEscape = "";
+      }
+      if (out) this.emittedAny = true;
+      return out;
+    }
+  }
+  const SIMPLE_ESCAPES = {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    b: "\b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "	"
+  };
+  class JsonArrayStreamSplitter {
+    buffer = "";
+    /** How far into `buffer` the scan has already reached. */
+    at = 0;
+    /** Offset where the element currently being scanned began. */
+    start = 0;
+    depth = 0;
+    inElement = false;
+    inString = false;
+    escaped = false;
+    opened = false;
+    closed = false;
+    /** True once the closing `]` arrived, i.e. the array was complete rather than cut off. */
+    get complete() {
+      return this.closed;
+    }
+    /** Feed raw text; returns every top-level element that is now whole. */
+    push(text) {
+      if (!text) return [];
+      this.buffer += text;
+      const elements = [];
+      while (this.at < this.buffer.length) {
+        const char = this.buffer[this.at];
+        if (this.closed) {
+          this.at += 1;
+          continue;
+        }
+        if (!this.inElement) {
+          if (!this.opened) {
+            if (char === "[") {
+              this.opened = true;
+              this.at += 1;
+              continue;
+            }
+            if (isSpace(char)) {
+              this.at += 1;
+              continue;
+            }
+            this.opened = true;
+            continue;
+          }
+          if (isSpace(char) || char === ",") {
+            this.at += 1;
+            continue;
+          }
+          if (char === "]") {
+            this.closed = true;
+            this.at += 1;
+            continue;
+          }
+          this.inElement = true;
+          this.start = this.at;
+          this.depth = 0;
+        }
+        if (this.inString) {
+          if (this.escaped) this.escaped = false;
+          else if (char === "\\") this.escaped = true;
+          else if (char === '"') this.inString = false;
+        } else if (char === '"') {
+          this.inString = true;
+        } else if (char === "{" || char === "[") {
+          this.depth += 1;
+        } else if (char === "}" || char === "]") {
+          this.depth -= 1;
+          if (this.depth === 0) {
+            elements.push(this.buffer.slice(this.start, this.at + 1));
+            this.inElement = false;
+            this.buffer = this.buffer.slice(this.at + 1);
+            this.at = 0;
+            continue;
+          }
+        }
+        this.at += 1;
+      }
+      return elements;
+    }
+    /**
+     * Whatever never formed a complete element.
+     *
+     * Emitted rather than dropped on a truncated stream: the characters arrived and were paid
+     * for, and a half-object downstream is more honest than silence.
+     */
+    finish() {
+      if (!this.inElement) return "";
+      const rest = this.buffer.slice(this.start);
+      this.inElement = false;
+      this.buffer = "";
+      this.at = 0;
+      return rest;
+    }
+  }
+  function isSpace(char) {
+    return char === " " || char === "\n" || char === "\r" || char === "	";
+  }
+  function flattenJsonElement(element) {
+    try {
+      return JSON.stringify(JSON.parse(element));
+    } catch {
+      return element.replace(/[\r\n]+/g, " ");
+    }
+  }
+  const TOOL_PREFIX = "emit_complete_response_";
+  function matchesToolName(candidate, toolName) {
+    if (typeof candidate !== "string" || !candidate || !toolName) return false;
+    if (candidate === toolName) return true;
+    return bareToolName(candidate) === toolName;
+  }
+  function bareToolName(candidate) {
+    return candidate.slice(candidate.lastIndexOf(":") + 1);
+  }
+  const NO_CLIENT_TOOLS = new Set();
+  function classifyToolName(candidate, toolName, clientToolNames = NO_CLIENT_TOOLS) {
+    if (typeof candidate !== "string" || !candidate) return "client";
+    if (matchesToolName(candidate, toolName)) return "own";
+    const bare = bareToolName(candidate);
+    if (clientToolNames.has(candidate) || clientToolNames.has(bare)) return "client";
+    return bare.length > TOOL_PREFIX.length && bare.startsWith(TOOL_PREFIX) ? "foreign" : "client";
+  }
+  function randomToolName(existing) {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const bytes = new Uint8Array(12);
+      crypto.getRandomValues(bytes);
+      const name = TOOL_PREFIX + Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (!existing.has(name)) return name;
+    }
+    throw new Error("could not generate a unique transport tool name");
+  }
+  function collectToolNames(tools) {
+    const names = new Set();
+    if (!Array.isArray(tools)) return names;
+    for (const tool of tools) {
+      const name = tool?.function?.name;
+      if (typeof name === "string" && name) names.add(name);
+    }
+    return names;
+  }
+  function callerControlsTools(body) {
+    const choice = body["tool_choice"];
+    if (choice === "none") return "tools-disabled-by-caller";
+    if (choice === "required") return "caller-forced-tool";
+    if (choice && typeof choice === "object") return "caller-forced-tool";
+    return void 0;
+  }
+  function buildToolDefinition(name) {
+    return {
+      type: "function",
+      function: {
+        name,
+        description: "Emit the complete final user-visible reply exactly once. Put the entire reply in content and write no reply text outside this call.",
+        parameters: {
+          type: "object",
+          properties: {
+            content: {
+              type: "string",
+              description: "The complete final reply shown to the user."
+            }
+          },
+          required: ["content"]
+        }
+      }
+    };
+  }
+  function buildControlPrompt(toolName) {
+    return `Call the \`${toolName}\` function exactly once and put your complete final reply in its \`content\` argument. Do not write any of the final reply outside that call. Use any other available tools normally when they are needed.`;
+  }
+  function findAnchor(messages, anchor) {
+    for (let index = 0; index < messages.length; index += 1) {
+      const content = messages[index]?.content;
+      if (typeof content === "string" && content.includes(anchor)) return index;
+    }
+    return -1;
+  }
+  function prepareRequest(rawBody, options = {}) {
+    let body;
+    try {
+      const parsed = JSON.parse(rawBody);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { kind: "bypass", reason: "unparseable" };
+      }
+      body = parsed;
+    } catch {
+      return { kind: "bypass", reason: "unparseable" };
+    }
+    const messages = body["messages"];
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return { kind: "bypass", reason: "no-messages" };
+    }
+    const controlled = callerControlsTools(body);
+    if (controlled) {
+      return { kind: "bypass", reason: controlled };
+    }
+    const existingTools = Array.isArray(body["tools"]) ? [...body["tools"]] : [];
+    const clientToolNames = collectToolNames(existingTools);
+    const toolName = randomToolName(clientToolNames);
+    body["tools"] = [...existingTools, buildToolDefinition(toolName)];
+    body["tool_choice"] = "auto";
+    const control = buildControlPrompt(toolName);
+    const anchorIndex = options.controlAnchor ? findAnchor(messages, options.controlAnchor) : -1;
+    let controlPlacement;
+    if (anchorIndex >= 0) {
+      body["messages"] = [
+        ...messages.slice(0, anchorIndex),
+        { role: "system", content: control },
+        ...messages.slice(anchorIndex)
+      ];
+      controlPlacement = "anchored";
+    } else {
+      const lastRole = messages[messages.length - 1]?.role;
+      const controlRole = lastRole === "assistant" ? "user" : "system";
+      body["messages"] = [...messages, { role: controlRole, content: control }];
+      controlPlacement = "appended";
+    }
+    return {
+      kind: "prepared",
+      prepared: {
+        body: JSON.stringify(body),
+        toolName,
+        clientToolNames,
+        streamRequested: body["stream"] === true,
+        controlPlacement
+      }
+    };
+  }
+  class SseContentRewriter {
+    constructor(toolName, clientToolNames = new Set()) {
+      this.toolName = toolName;
+      this.clientToolNames = clientToolNames;
+    }
+    states = new Map();
+    stats = {
+      syntheticSeen: false,
+      contentConflict: false,
+      plainWon: false,
+      sawDone: false,
+      decodedChars: 0,
+      emittedChars: 0,
+      decodedChunks: 0
+    };
+    /** Echoed back on a synthesized final chunk so it matches the rest of the stream. */
+    lastChunkMeta = {
+      id: "chatcmpl-anti-truncation",
+      model: "unknown",
+      created: Math.floor(Date.now() / 1e3)
+    };
+    state(index, dialect) {
+      let existing = this.states.get(index);
+      if (!existing) {
+        existing = {
+          dialect,
+          plain: "",
+          sent: "",
+          channels: new Map(),
+          slotNames: new Map(),
+          activeGoogleChannel: void 0,
+          sawSynthetic: false
+        };
+        this.states.set(index, existing);
+      }
+      existing.dialect = dialect;
+      return existing;
+    }
+    /**
+     * Transform one SSE `data:` payload.
+     *
+     * Returns the replacement payload, or `undefined` when the chunk carried nothing left to
+     * forward (for example a tool-call fragment that decoded to no visible characters yet).
+     */
+    transformPayload(payload) {
+      const trimmed = payload.trim();
+      if (trimmed === "[DONE]") {
+        this.stats.sawDone = true;
+        return payload;
+      }
+      let chunk;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (!parsed || typeof parsed !== "object") return payload;
+        chunk = parsed;
+      } catch {
+        return payload;
+      }
+      if (typeof chunk["id"] === "string") this.lastChunkMeta.id = chunk["id"];
+      if (typeof chunk["model"] === "string") this.lastChunkMeta.model = chunk["model"];
+      if (typeof chunk["created"] === "number") this.lastChunkMeta.created = chunk["created"];
+      const choices = chunk["choices"];
+      if (Array.isArray(choices)) return this.rewriteChoices(chunk, choices, payload);
+      const candidates = chunk["candidates"];
+      if (Array.isArray(candidates)) return this.rewriteCandidates(chunk, candidates, payload);
+      return payload;
+    }
+    /** The OpenAI dialect: `choices[].delta.tool_calls[].function.arguments`. */
+    rewriteChoices(chunk, choices, payload) {
+      let touched = false;
+      let anythingToSend = false;
+      for (const rawChoice of choices) {
+        if (!rawChoice || typeof rawChoice !== "object") continue;
+        const choice = rawChoice;
+        const index = typeof choice["index"] === "number" ? choice["index"] : 0;
+        const state = this.state(index, "openai");
+        const field = choice["delta"] === void 0 || choice["delta"] === null ? choice["message"] && typeof choice["message"] === "object" ? "message" : "delta" : "delta";
+        const delta = choice[field] ?? {};
+        const originalContent = typeof delta["content"] === "string" ? delta["content"] : "";
+        let streamedText = "";
+        const toolCalls = delta["tool_calls"];
+        if (Array.isArray(toolCalls)) {
+          const { handled, decoded, remaining } = this.consumeToolCalls(state, toolCalls);
+          streamedText += decoded;
+          if (handled) touched = true;
+          if (remaining.length > 0) {
+            delta["tool_calls"] = remaining;
+            anythingToSend = true;
+          } else if (toolCalls.length > 0 && handled) {
+            delete delta["tool_calls"];
+            touched = true;
+          }
+        }
+        if (originalContent) {
+          touched = true;
+          delete delta["content"];
+          state.plain += originalContent;
+        }
+        if (streamedText) {
+          delta["content"] = streamedText;
+          anythingToSend = true;
+        }
+        const finish = choice["finish_reason"];
+        if (finish !== null && finish !== void 0) {
+          touched = true;
+          anythingToSend = true;
+          const tail = this.finalizeChoice(state);
+          if (tail) {
+            delta["content"] = (delta["content"] ?? "") + tail;
+          }
+          if (state.sawSynthetic && finish === "tool_calls") {
+            choice["finish_reason"] = "stop";
+          }
+        }
+        if (Object.keys(delta).length > 0) anythingToSend = true;
+        choice[field] = delta;
+      }
+      if (!touched) return payload;
+      if (!anythingToSend) return void 0;
+      return JSON.stringify(chunk);
+    }
+    /**
+     * The Google dialect: `candidates[].content.parts[].functionCall.args`.
+     *
+     * The recovered reply is emitted as a `parts[]` text entry, and it must come FIRST.
+     * SillyTavern reads a Gemini chunk as `parts.filter(p => !p.thought).map(p => p.text)[0]`
+     * (`public/scripts/openai.js`, `getStreamingReply`), so any other non-thought part left in
+     * front of ours — an `inlineData` image, say — would shadow it and the reply would vanish.
+     */
+    rewriteCandidates(chunk, candidates, payload) {
+      let touched = false;
+      let anythingToSend = false;
+      for (const rawCandidate of candidates) {
+        if (!rawCandidate || typeof rawCandidate !== "object") continue;
+        const candidate = rawCandidate;
+        const index = typeof candidate["index"] === "number" ? candidate["index"] : 0;
+        const state = this.state(index, "google");
+        const rawContent = candidate["content"];
+        const content = rawContent && typeof rawContent === "object" ? rawContent : {};
+        const parts = content["parts"];
+        let streamedText = "";
+        const kept = [];
+        if (Array.isArray(parts)) {
+          for (const rawPart of parts) {
+            if (!rawPart || typeof rawPart !== "object") {
+              kept.push(rawPart);
+              continue;
+            }
+            const part = rawPart;
+            const call = part["functionCall"];
+            if (call && typeof call === "object") {
+              const consumed = this.consumeGoogleCall(state, call);
+              if (!consumed.handled) {
+                kept.push(rawPart);
+                continue;
+              }
+              streamedText += consumed.decoded;
+              touched = true;
+              continue;
+            }
+            if (part["thought"] === true) {
+              kept.push(rawPart);
+              continue;
+            }
+            if (typeof part["text"] === "string" && part["text"]) {
+              touched = true;
+              state.plain += part["text"];
+              continue;
+            }
+            kept.push(rawPart);
+          }
+        }
+        let emitted = streamedText;
+        const finish = candidate["finishReason"];
+        if (finish !== null && finish !== void 0) {
+          touched = true;
+          anythingToSend = true;
+          emitted += this.finalizeChoice(state);
+        }
+        if (!touched) continue;
+        const nextParts = [];
+        if (emitted) nextParts.push({ text: emitted });
+        nextParts.push(...kept);
+        if (nextParts.length > 0 || Array.isArray(parts)) {
+          content["parts"] = nextParts;
+          if (typeof content["role"] !== "string") content["role"] = "model";
+          candidate["content"] = content;
+        }
+        if (nextParts.length > 0) anythingToSend = true;
+      }
+      if (!touched) return payload;
+      if (!anythingToSend) return void 0;
+      return JSON.stringify(chunk);
+    }
+    /**
+     * Consume one Google `functionCall` block, in either of the two shapes it arrives in.
+     *
+     * ── Atomic ───────────────────────────────────────────────────────────────────────────
+     * `{ name, args }` — the whole call in one block. What Gemini sends by default.
+     *
+     * ── Streamed (`streamFunctionCallArguments: true`) ───────────────────────────────────
+     * The call is spread over several blocks and only the FIRST carries the name:
+     *
+     *   `{ name, id, willContinue: true }`                       ← opening, no arguments yet
+     *   `{ partialArgs: [{ jsonPath: "$.content", stringValue }], willContinue: true }`
+     *   `{ partialArgs: [{ jsonPath: "$.content" }] }`           ← end-of-argument marker
+     *   `{}`                                                     ← end-of-call marker
+     *
+     * Every block after the first is anonymous, so `classifyToolName` cannot be asked again —
+     * hence the latch. Without it those blocks read as somebody else's tool call and get
+     * forwarded to a SillyTavern that finds no text in them: an empty message, with the whole
+     * reply sitting in the fragments we just passed along.
+     *
+     * `stringValue` is DECODED text, not JSON source, so it must never reach
+     * `IncrementalContentDecoder` — that one exists to read a raw `{"content":"…"}` string
+     * while it is still arriving, which is a different problem.
+     *
+     * Malformed fragments are skipped rather than thrown on. The gateway-side reference
+     * implementation throws; this one sits in front of a user's chat and must never turn a
+     * degraded reply into a failed generation.
+     */
+    consumeGoogleCall(state, call) {
+      const name = call["name"];
+      let channelName;
+      if (typeof name === "string" && name) {
+        if (classifyToolName(name, this.toolName, this.clientToolNames) === "client") {
+          state.activeGoogleChannel = void 0;
+          return { handled: false, decoded: "" };
+        }
+        channelName = bareToolName(name);
+        state.activeGoogleChannel = channelName;
+      } else {
+        channelName = state.activeGoogleChannel;
+      }
+      if (channelName === void 0) {
+        const empty = call["args"] === void 0 && call["partialArgs"] === void 0 && state.sawSynthetic;
+        return { handled: empty, decoded: "" };
+      }
+      this.markSynthetic(state);
+      const channel = this.channel(state, channelName);
+      let text = "";
+      const partialArgs = call["partialArgs"];
+      if (Array.isArray(partialArgs)) {
+        text += readPartialArgs(partialArgs);
+      }
+      if (call["args"] !== void 0) {
+        text += decodeGoogleArgs(channel, call["args"]);
+      }
+      if (call["willContinue"] !== true) {
+        state.activeGoogleChannel = void 0;
+      }
+      return { handled: true, decoded: this.absorb(state, channel, text) };
+    }
+    /** First sight of a transport tool on this choice. */
+    markSynthetic(state) {
+      if (state.sawSynthetic) return;
+      state.sawSynthetic = true;
+      this.stats.syntheticSeen = true;
+    }
+    channel(state, name) {
+      let channel = state.channels.get(name);
+      if (!channel) {
+        channel = { decoder: new IncrementalContentDecoder(), text: "" };
+        state.channels.set(name, channel);
+      }
+      return channel;
+    }
+    /**
+     * Record newly decoded transport text, and return the part that may go out right now.
+     *
+     * While a transport call is the only thing that has produced anything, its text streams as
+     * it arrives — that progressive display is the whole point of the feature. The moment a
+     * SECOND candidate exists (ordinary text the model wrote anyway, or another transport tool
+     * because a gateway injected its own), streaming stops for this choice and the decision is
+     * deferred to `finalizeChoice`, which sends the winner exactly once. Deferring costs the
+     * progressive display only in the case that used to lose the reply outright.
+     */
+    absorb(state, channel, text) {
+      if (!text) return "";
+      channel.text += text;
+      this.stats.decodedChunks += 1;
+      if (state.plain !== "" || state.channels.size > 1) return "";
+      state.sent += text;
+      this.stats.decodedChars += text.length;
+      this.stats.emittedChars += text.length;
+      return text;
+    }
+    /**
+     * Split a `tool_calls` delta into decoded transport text and the genuine calls that must
+     * still be forwarded.
+     */
+    consumeToolCalls(state, toolCalls) {
+      let handled = false;
+      let decoded = "";
+      const remaining = [];
+      for (const rawCall of toolCalls) {
+        if (!rawCall || typeof rawCall !== "object") {
+          remaining.push(rawCall);
+          continue;
+        }
+        const call = rawCall;
+        const callIndex = typeof call["index"] === "number" ? call["index"] : 0;
+        const fn = call["function"] ?? {};
+        const name = typeof fn["name"] === "string" ? fn["name"] : "";
+        let channelName = state.slotNames.get(callIndex);
+        if (name) {
+          const origin = classifyToolName(name, this.toolName, this.clientToolNames);
+          if (origin === "client") {
+            channelName = void 0;
+            state.slotNames.delete(callIndex);
+          } else {
+            channelName = bareToolName(name);
+            state.slotNames.set(callIndex, channelName);
+          }
+        }
+        if (channelName === void 0) {
+          remaining.push(rawCall);
+          continue;
+        }
+        handled = true;
+        this.markSynthetic(state);
+        const channel = this.channel(state, channelName);
+        const args = fn["arguments"];
+        if (typeof args === "string" && args) {
+          decoded += this.absorb(state, channel, channel.decoder.feed(args));
+        }
+      }
+      return { handled, decoded, remaining };
+    }
+    /**
+     * Decide which channel actually carried the reply, and return what still has to be sent.
+     *
+     * Longest wins, with a tie going to the transport call because that is the channel we
+     * asked for. Anything already on screen cannot be recalled, so only the missing remainder
+     * is emitted; a winner that is not a continuation of it is emitted whole, on the grounds
+     * that showing a fragment twice beats not showing the reply at all.
+     *
+     * Idempotent: every accumulator is drained, so a second call (the `finish_reason` chunk
+     * followed by the stream closing) adds nothing.
+     */
+    finalizeChoice(state) {
+      let best = "";
+      let bestIsPlain = false;
+      let contenders = 0;
+      for (const channel of state.channels.values()) {
+        channel.text += channel.decoder.finish();
+        if (channel.text) contenders += 1;
+        if (channel.text.length > best.length) {
+          best = channel.text;
+          bestIsPlain = false;
+        }
+        channel.text = "";
+      }
+      if (state.plain) {
+        contenders += 1;
+        if (state.plain.length > best.length) {
+          best = state.plain;
+          bestIsPlain = true;
+        }
+      }
+      state.plain = "";
+      if (contenders > 1) {
+        this.stats.contentConflict = true;
+        if (bestIsPlain) this.stats.plainWon = true;
+      }
+      const tail = best.startsWith(state.sent) ? best.slice(state.sent.length) : best;
+      state.sent += tail;
+      this.stats.emittedChars += tail.length;
+      if (!bestIsPlain) this.stats.decodedChars += tail.length;
+      return tail;
+    }
+    /**
+     * Release anything still held back, for a stream that ended without a `finish_reason`.
+     *
+     * Text is buffered until the winning channel is known, so a stream that simply stops — no
+     * finish chunk, connection dropped, provider quirk — would otherwise take the entire reply
+     * down with it. Returns one payload per choice that still owes the client text; the caller
+     * writes them out before closing.
+     */
+    finalizePending() {
+      const { id, model, created } = this.lastChunkMeta;
+      const payloads = [];
+      for (const [index, state] of this.states) {
+        const pending = this.finalizeChoice(state);
+        if (!pending) continue;
+        payloads.push(
+          state.dialect === "google" ? JSON.stringify({
+            candidates: [
+              { index, content: { role: "model", parts: [{ text: pending }] } }
+            ]
+          }) : JSON.stringify({
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model,
+            choices: [{ index, delta: { content: pending }, finish_reason: null }]
+          })
+        );
+      }
+      return payloads;
+    }
+  }
+  function readPartialArgs(partialArgs) {
+    let text = "";
+    for (const rawFragment of partialArgs) {
+      if (!rawFragment || typeof rawFragment !== "object") continue;
+      const fragment = rawFragment;
+      const path = typeof fragment["jsonPath"] === "string" ? fragment["jsonPath"].trim() : "";
+      if (path !== "$.content") continue;
+      const value = fragment["stringValue"];
+      if (typeof value === "string") text += value;
+    }
+    return text;
+  }
+  function decodeGoogleArgs(channel, args) {
+    if (typeof args === "string") return args ? channel.decoder.feed(args) : "";
+    if (args && typeof args === "object") {
+      const content = args["content"];
+      if (typeof content !== "string" || !content) return "";
+      if (!channel.text) return content;
+      if (content.startsWith(channel.text)) return content.slice(channel.text.length);
+      if (channel.text.startsWith(content)) return "";
+      return content;
+    }
+    return "";
+  }
+  const MARKER = "__keminiAntiTruncation__";
+  const SOFT_MISS_LIMIT = 3;
+  let onTransportIncompatible = () => {
+  };
+  function setTransportIncompatibleHandler(handler) {
+    onTransportIncompatible = handler;
+  }
+  const GENERATION_ENDPOINT = /\/api\/backends\/[^/]+\/generate\b/;
+  class AntiTruncationInterceptor {
+    installed = false;
+    enabled = false;
+    original;
+    target;
+    lastRunRecord;
+    get isEnabled() {
+      return this.enabled;
+    }
+    get lastRun() {
+      return this.lastRunRecord;
+    }
+    /** Consecutive runs where the channel gave nothing back through the tool. */
+    missStreak = 0;
+    record(run) {
+      this.lastRunRecord = { at: Date.now(), ...run };
+      eventLog.info(
+        `anti-truncation: ${run.outcome}` + (run.detail ? ` (${run.detail})` : "") + (run.outcome !== "transported" ? "" : run.plainWon ? ` — plain channel won with ${run.emittedChars} chars` : ` — ${run.decodedChars} chars in ${run.decodedChunks} chunks`)
+      );
+      this.warnIfChannelRejectsTransport(run.outcome, run.detail);
+      this.warnIfChannelHasItsOwnTransport(run.outcome, run.plainWon);
+    }
+    /** Consecutive runs the ordinary text channel won. */
+    plainWinStreak = 0;
+    /**
+     * Say when a channel looks like it is already doing this itself.
+     *
+     * Two anti-truncation layers are not harmful — the longest-wins rule keeps the reply — but
+     * they are redundant, and the layer we add costs a control prompt and a tool the model has
+     * to reason about. Worth telling the user; not worth deciding for them.
+     */
+    warnIfChannelHasItsOwnTransport(outcome, plainWon) {
+      if (outcome !== "transported") return;
+      if (!plainWon) {
+        this.plainWinStreak = 0;
+        return;
+      }
+      this.plainWinStreak += 1;
+      if (this.plainWinStreak === SOFT_MISS_LIMIT) {
+        onTransportIncompatible(
+          `连续 ${SOFT_MISS_LIMIT} 次正文都是从普通通道拿到的，这条渠道多半自己就做了抗截断。正文没有丢，但本面板这一层是多余的，可以点「🛡 防截断」把它关掉。`
+        );
+      }
+    }
+    /**
+     * Say when a channel looks unable to carry the transport — and do nothing else.
+     *
+     * Auto-disabling was considered and rejected: a model can decline the tool once for its
+     * own reasons, and a panel that silently reverses the user's switch is worse than one that
+     * keeps failing visibly. So this only warns, once per streak, and the user decides.
+     *
+     * `upstream-error` is a hard rejection and worth saying immediately. `no-synthetic-call`
+     * and a barren `non-stream` are soft: they need to repeat before they mean anything.
+     */
+    warnIfChannelRejectsTransport(outcome, detail) {
+      if (outcome === "transported" || outcome === "bypassed") {
+        this.missStreak = 0;
+        return;
+      }
+      if (outcome === "upstream-error") {
+        this.missStreak = 0;
+        onTransportIncompatible(
+          `上游拒绝了这次请求（${detail ?? "未知"}）。如果每次都这样，多半是这条渠道不接受函数调用，可以点「🛡 防截断」把它关掉。`
+        );
+        return;
+      }
+      this.missStreak += 1;
+      if (this.missStreak === SOFT_MISS_LIMIT) {
+        onTransportIncompatible(
+          `连续 ${SOFT_MISS_LIMIT} 次没有从传输函数里拿到正文，这条渠道可能不支持。开关没有被动过——要关请点「🛡 防截断」。`
+        );
+      }
+    }
+    setEnabled(enabled) {
+      this.enabled = enabled;
+      eventLog.info(`anti-truncation transport ${enabled ? "enabled" : "disabled"}`);
+    }
+    install() {
+      if (this.installed) return;
+      /* 【移植改动】宿主窗口 = 一路往上爬到最外层的同源窗口，不再只看 parent 一层。
+         酒馆助手脚本跑在 iframe 里（手机上还可能是嵌套 iframe），而 generate 请求
+         是**最外层那个窗口**发的。取不到（跨域）就宁可不装——不把拦截器装在一个
+         根本不发请求的窗口上，让开关看起来"开着"。 */
+      const target = hostWindow();
+      if (!target) {
+        eventLog.warn("anti-truncation: 外层窗口跨域，拿不到宿主窗口，未安装");
+        return;
+      }
+      const current = target.fetch;
+      if (typeof current !== "function") {
+        eventLog.warn("anti-truncation: 宿主窗口没有 fetch，未安装");
+        return;
+      }
+      const original = current[MARKER]?.original ?? current;
+      const self = this;
+      const wrapper = function patchedFetch(...args) {
+        if (!self.enabled) {
+          return original.apply(this ?? target, args);
+        }
+        try {
+          const url = resolveUrl(args[0]);
+          if (url && GENERATION_ENDPOINT.test(url)) {
+            return self.intercept(original, this ?? target, args);
+          }
+        } catch (error) {
+          eventLog.warn(`anti-truncation: intercept skipped, ${describeError(error)}`);
+        }
+        return original.apply(this ?? target, args);
+      };
+      wrapper[MARKER] = { original };
+      target.fetch = wrapper;
+      this.original = original;
+      this.target = target;
+      this.installed = true;
+      eventLog.info("anti-truncation interceptor installed");
+    }
+    async intercept(original, thisArg, args) {
+      const call = () => original.apply(thisArg, args);
+      let rawBody;
+      try {
+        rawBody = await readRequestBody(args);
+      } catch (error) {
+        this.record({
+          ...EMPTY_RUN,
+          outcome: "bypassed",
+          detail: `读取请求体失败: ${describeError(error)}`
+        });
+        return call();
+      }
+      if (rawBody === void 0) {
+        this.record({ ...EMPTY_RUN, outcome: "bypassed", detail: "请求体不是可读取的字符串" });
+        return call();
+      }
+      const result = prepareRequest(rawBody, { controlAnchor: TRANSPORT_CONTROL_ANCHOR });
+      if (result.kind === "bypass") {
+        this.record({ ...EMPTY_RUN, outcome: "bypassed", detail: result.reason });
+        return call();
+      }
+      const { body, toolName, clientToolNames, streamRequested, controlPlacement } = result.prepared;
+      if (controlPlacement === "appended") {
+        eventLog.warn(
+          `anti-truncation: control anchor ${JSON.stringify(TRANSPORT_CONTROL_ANCHOR)} not found, control prompt appended at the end instead`
+        );
+      }
+      const patched = withBody(args, body);
+      const response = await original.apply(thisArg, patched);
+      if (!response.ok || !response.body) {
+        this.record({
+          ...EMPTY_RUN,
+          outcome: "upstream-error",
+          detail: `HTTP ${response.status}`
+        });
+        return response;
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      const { shape, response: sniffed } = await sniffResponseShape(response, contentType);
+      if (shape === "json-array" && streamRequested) {
+        eventLog.info("anti-truncation: upstream sent a JSON array instead of SSE, reframing");
+        return rewriteEventStream(reframeJsonArrayStream(sniffed), toolName, clientToolNames, (stats) => {
+          this.record({
+            outcome: stats.syntheticSeen ? "transported" : "no-synthetic-call",
+            detail: "上游回的是 JSON 数组流，已转成 SSE",
+            decodedChars: stats.decodedChars,
+            emittedChars: stats.emittedChars,
+            decodedChunks: stats.decodedChunks,
+            streamed: stats.decodedChunks > 1,
+            endedCleanly: stats.sawDone,
+            conflict: stats.contentConflict,
+            plainWon: stats.plainWon
+          });
+        });
+      }
+      if (shape !== "sse") {
+        const { response: rewritten, recovered } = await rewriteJsonResponse(
+          sniffed,
+          toolName,
+          clientToolNames
+        );
+        if (recovered !== void 0) {
+          this.record({
+            ...EMPTY_RUN,
+            outcome: "transported",
+            decodedChars: recovered.plainWon ? 0 : recovered.chars,
+            emittedChars: recovered.chars,
+            decodedChunks: 1,
+            streamed: false,
+            endedCleanly: true,
+            conflict: recovered.conflict,
+            plainWon: recovered.plainWon
+          });
+          return rewritten;
+        }
+        this.record({
+          ...EMPTY_RUN,
+          outcome: "non-stream",
+          detail: (streamRequested ? `请求了流式但上游回的不是 SSE${contentType ? `（content-type: ${contentType}）` : ""}` : "本次请求没有开流式") + "，且没找到传输函数调用"
+        });
+        return rewritten;
+      }
+      return rewriteEventStream(sniffed, toolName, clientToolNames, (stats) => {
+        this.record({
+          outcome: stats.syntheticSeen ? "transported" : "no-synthetic-call",
+          decodedChars: stats.decodedChars,
+          emittedChars: stats.emittedChars,
+          decodedChunks: stats.decodedChunks,
+          // More than one carrying chunk is the proof that it arrived progressively.
+          streamed: stats.decodedChunks > 1,
+          endedCleanly: stats.sawDone,
+          conflict: stats.contentConflict,
+          plainWon: stats.plainWon
+        });
+      });
+    }
+    dispose() {
+      this.enabled = false;
+      if (!this.installed || !this.target || !this.original) {
+        this.installed = false;
+        return;
+      }
+      const current = this.target.fetch;
+      if (current && current[MARKER]) {
+        this.target.fetch = this.original;
+        eventLog.info("anti-truncation interceptor removed");
+      } else {
+        eventLog.warn("anti-truncation: another patch is on top, leaving chain intact");
+      }
+      this.installed = false;
+      this.target = void 0;
+      this.original = void 0;
+    }
+  }
+  const SSE_HEAD = /^\s*(?:data:|event:|id:|retry:|:)/;
+  const JSON_ARRAY_HEAD = /^\s*\[/;
+  const SNIFF_CHARS = 8;
+  async function sniffResponseShape(response, contentType) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const consumed = [];
+    let head = "";
+    let ended = false;
+    let readError;
+    try {
+      while (!ended && head.length < SNIFF_CHARS) {
+        const { value, done } = await reader.read();
+        if (done) {
+          ended = true;
+          break;
+        }
+        if (!value || value.length === 0) continue;
+        consumed.push(value);
+        head += decoder.decode(value, { stream: true });
+      }
+    } catch (error) {
+      readError = error;
+      ended = true;
+    }
+    const replay = new ReadableStream({
+      start(controller) {
+        for (const value of consumed) controller.enqueue(value);
+        if (readError !== void 0) {
+          controller.error(readError);
+          return;
+        }
+        if (ended) controller.close();
+      },
+      async pull(controller) {
+        const { value, done } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      },
+      cancel(reason) {
+        void reader.cancel(reason);
+      }
+    });
+    const shape = JSON_ARRAY_HEAD.test(head) ? "json-array" : SSE_HEAD.test(head) || contentType.includes("text/event-stream") ? "sse" : "json";
+    return {
+      shape,
+      response: new Response(replay, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers
+      })
+    };
+  }
+  function reframeJsonArrayStream(response) {
+    const splitter = new JsonArrayStreamSplitter();
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    const emit = (controller, element) => {
+      controller.enqueue(encoder.encode(`data: ${flattenJsonElement(element)}
+
+`));
+    };
+    const stream = new TransformStream({
+      transform(chunk, controller) {
+        for (const element of splitter.push(decoder.decode(chunk, { stream: true }))) {
+          emit(controller, element);
+        }
+      },
+      flush(controller) {
+        for (const element of splitter.push(decoder.decode())) {
+          emit(controller, element);
+        }
+        const rest = splitter.finish();
+        if (rest.trim()) emit(controller, rest);
+        if (splitter.complete) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        } else {
+          eventLog.warn("anti-truncation: JSON array stream ended without its closing bracket");
+        }
+      }
+    });
+    void response.body.pipeTo(stream.writable).catch((error) => {
+      eventLog.warn(`anti-truncation: JSON array stream aborted, ${describeError(error)}`);
+    });
+    return new Response(stream.readable, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  }
+  function rewriteEventStream(response, toolName, clientToolNames, onComplete) {
+    const rewriter = new SseContentRewriter(toolName, clientToolNames);
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    let buffer = "";
+    const stream = new TransformStream({
+      transform(chunk, controller) {
+        buffer += decoder.decode(chunk, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const rawEvent = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const rewritten = rewriteEvent(rewriter, rawEvent);
+          if (rewritten !== void 0) {
+            controller.enqueue(encoder.encode(rewritten + "\n\n"));
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      },
+      flush(controller) {
+        buffer += decoder.decode();
+        const rest = buffer.trim();
+        if (rest) {
+          controller.enqueue(encoder.encode(buffer));
+        }
+        for (const payload of rewriter.finalizePending()) {
+          controller.enqueue(encoder.encode(`data: ${payload}
+
+`));
+        }
+        if (!rewriter.stats.sawDone) {
+          eventLog.warn("anti-truncation: upstream stream ended without [DONE]");
+        }
+        onComplete?.(rewriter.stats);
+      }
+    });
+    void response.body.pipeTo(stream.writable).catch((error) => {
+      eventLog.warn(`anti-truncation: upstream stream aborted, ${describeError(error)}`);
+    });
+    return new Response(stream.readable, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  }
+  function rewriteEvent(rewriter, rawEvent) {
+    const lines = rawEvent.split("\n");
+    const out = [];
+    let sawData = false;
+    let emittedData = false;
+    for (const line2 of lines) {
+      if (!line2.startsWith("data:")) {
+        out.push(line2);
+        continue;
+      }
+      sawData = true;
+      const payload = line2.slice("data:".length).replace(/^ /, "");
+      const rewritten = rewriter.transformPayload(payload);
+      if (rewritten !== void 0) {
+        out.push(`data: ${rewritten}`);
+        emittedData = true;
+      }
+    }
+    if (sawData && !emittedData) return void 0;
+    return out.join("\n");
+  }
+  async function rewriteJsonResponse(response, toolName, clientToolNames) {
+    let parsed;
+    try {
+      parsed = await response.clone().json();
+    } catch (error) {
+      eventLog.warn(`anti-truncation: response was not JSON, ${describeError(error)}`);
+      return { response, recovered: void 0 };
+    }
+    let recovered;
+    try {
+      const choices = parsed["choices"];
+      if (Array.isArray(choices)) {
+        recovered = unwrapOpenAiChoices(choices, toolName, clientToolNames);
+      }
+      const google = unwrapGoogleContent(parsed, toolName, clientToolNames);
+      if (google !== void 0) recovered = mergeRecovery(recovered, google);
+    } catch (error) {
+      eventLog.warn(`anti-truncation: could not unwrap JSON reply, ${describeError(error)}`);
+      return { response, recovered: void 0 };
+    }
+    if (recovered === void 0) return { response, recovered };
+    return {
+      response: new Response(JSON.stringify(parsed), {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers
+      }),
+      recovered
+    };
+  }
+  function mergeRecovery(a, b) {
+    if (!a) return b;
+    return {
+      chars: a.chars + b.chars,
+      conflict: a.conflict || b.conflict,
+      plainWon: a.plainWon || b.plainWon
+    };
+  }
+  function longest(plain, carried) {
+    let text = plain;
+    let plainWon = true;
+    for (const candidate of carried) {
+      if (candidate.length >= text.length) {
+        text = candidate;
+        plainWon = false;
+      }
+    }
+    const contenders = (plain ? 1 : 0) + carried.filter((entry) => entry !== "").length;
+    return {
+      text,
+      chars: text.length,
+      conflict: contenders > 1,
+      plainWon: plainWon && contenders > 1
+    };
+  }
+  function unwrapOpenAiChoices(choices, toolName, clientToolNames) {
+    let recovered;
+    for (const rawChoice of choices) {
+      const choice = rawChoice;
+      const message = choice["message"];
+      if (!message) continue;
+      const calls = message["tool_calls"];
+      if (!Array.isArray(calls)) continue;
+      const kept = [];
+      const carried = [];
+      for (const rawCall of calls) {
+        const fn = rawCall?.function;
+        if (fn && classifyToolName(fn["name"], toolName, clientToolNames) !== "client") {
+          const value = readArgsContent(fn["arguments"]);
+          if (typeof value === "string") {
+            carried.push(value);
+            continue;
+          }
+        }
+        kept.push(rawCall);
+      }
+      if (carried.length === 0) continue;
+      const plain = typeof message["content"] === "string" ? message["content"] : "";
+      const best = longest(plain, carried);
+      message["content"] = best.text;
+      recovered = mergeRecovery(recovered, best);
+      if (kept.length > 0) {
+        message["tool_calls"] = kept;
+      } else {
+        delete message["tool_calls"];
+        if (choice["finish_reason"] === "tool_calls") choice["finish_reason"] = "stop";
+      }
+    }
+    return recovered;
+  }
+  function unwrapGoogleContent(parsed, toolName, clientToolNames) {
+    const rawContent = parsed["responseContent"];
+    if (!rawContent || typeof rawContent !== "object") return void 0;
+    const content = rawContent;
+    const parts = content["parts"];
+    if (!Array.isArray(parts)) return void 0;
+    const kept = [];
+    const carried = [];
+    let plain = "";
+    let signature;
+    for (const rawPart of parts) {
+      const part = rawPart;
+      const call = part?.["functionCall"];
+      if (call && classifyToolName(call["name"], toolName, clientToolNames) !== "client") {
+        const value = readArgsContent(call["args"]);
+        if (typeof value === "string") {
+          carried.push(value);
+          if (part?.["thoughtSignature"] !== void 0) signature = part["thoughtSignature"];
+          continue;
+        }
+      }
+      if (part && part["thought"] !== true && typeof part["text"] === "string" && part["text"]) {
+        plain += part["text"];
+        if (signature === void 0 && part["thoughtSignature"] !== void 0) {
+          signature = part["thoughtSignature"];
+        }
+        continue;
+      }
+      kept.push(rawPart);
+    }
+    if (carried.length === 0) return void 0;
+    const choices = parsed["choices"];
+    const message = Array.isArray(choices) ? choices[0]?.message : void 0;
+    const wrapped = typeof message?.["content"] === "string" ? message["content"] : "";
+    const best = longest(plain.length >= wrapped.length ? plain : wrapped, carried);
+    const textPart = { text: best.text };
+    if (signature !== void 0) textPart["thoughtSignature"] = signature;
+    content["parts"] = [textPart, ...kept];
+    if (message) message["content"] = best.text;
+    return best;
+  }
+  /* ══ PORTED-CORE-END ═════════════════════════════════════════════════ */
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 引导层：开关的读写 / 装与卸 / 控制台 API
+   *
+   * 与 v2.8.1 那版引导层的差别（就这一处，其余照搬）：
+   *   它那版还负责**注册顶部按钮**（appendInexistentScriptButtons /
+   *   getButtonEvent / eventOn）。这里**故意不注册**：panel-core.js 已经静态声明
+   *   并接线了那两个按钮，两处都注册就会把一次点击变成两次切换（＝点一下没反应，
+   *   而且每点一次多挂一个监听）。按钮交给面板，这里只负责开关本身。
+   * ══════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * 读开关。三种历史写法都要认：
+   *   "1" / "0"       —— v2.8.1 那一支写的就是这个（键也是它留下的）
+   *   "true"/"false"  —— 本面板上一版的按钮用 JSON.stringify 写的是这个
+   *   键不存在        —— 用出厂默认（options.defaultOn，面板传 CONFIG.antitrunc.enabled）
+   * 认不出来的脏值一律按**开启**：宁可多一层防护，也不因为一个坏值把防护悄悄关掉。
+   */
+  function readSwitch() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw === null || raw === '') return DEFAULT_ON;
+      const v = String(raw).trim().toLowerCase();
+      if (v === '0' || v === 'false') return false;
+      return true;
+    } catch {
+      return DEFAULT_ON;   /* 无痕模式 / 取不到 localStorage：用出厂默认 */
+    }
+  }
+
+  /**
+   * 写开关。写成 "1"/"0"——那是**这个键的原主人**（v2.8.1）认的写法，
+   * 于是从这支换回那一支时，用户的选择也跟着过去。
+   */
+  function writeSwitch(on) {
+    try { localStorage.setItem(LS_KEY, on ? '1' : '0'); } catch { /* 配额满 / 无痕：不阻断面板 */ }
+  }
+
+  const interceptor = new AntiTruncationInterceptor();
+  /* 渠道明显不支持时只提醒，绝不自动关用户的开关（核心段的注释里写了为什么）。 */
+  setTransportIncompatibleHandler((msg) => notice(msg));
+
+  /**
+   * 切开关：写存档 + **真的**装/卸拦截器（不是只改一个标志位）。
+   * 返回 { enabled, installed }：installed=false 表示"开关记下了，但没装上"
+   * （外层窗口跨域，或那个窗口没有 fetch），调用方据此提示用户。
+   */
+  function setEnabled(next) {
+    const on = next !== false;
+    writeSwitch(on);
+    if (on) {
+      interceptor.install();
+      interceptor.setEnabled(true);
+    } else {
+      interceptor.setEnabled(false);
+      interceptor.dispose();     /* 关掉就把 window.fetch 上的包装整个摘掉 */
+    }
+    return { enabled: interceptor.isEnabled, installed: interceptor.installed };
+  }
+
+  const api = {
+    interceptor,
+    key: LS_KEY,
+    isEnabled: () => interceptor.isEnabled,
+    installed: () => interceptor.installed,
+    lastRun: () => interceptor.lastRun,
+    anchor: TRANSPORT_CONTROL_ANCHOR,
+    setEnabled,
+    enable: () => setEnabled(true),
+    disable: () => setEnabled(false),
+    read: readSwitch,
+    write: writeSwitch,
+    hostWindow,
+  };
+
+  /** 控制台 API：挂在本脚本的 globalThis 上；够得着的话再挂到宿主窗口上。 */
+  try { globalThis.__FANO_ANTITRUNC__ = api; } catch { /* 忽略 */ }
+  try {
+    const w = hostWindow();
+    if (w && w !== globalThis) w.__FANO_ANTITRUNC__ = api;
+  } catch { /* 跨域等：忽略 */ }
+
+  /* 启动时按开关决定装不装：关着就一个包装都不留（window.fetch 原样）。
+     注意传进来的键也在这儿被规范化一次（老值 "true" 会被写成 "1"）。 */
+  const started = setEnabled(readSwitch());
+  eventLog.info('防截断运输已装载，开关=' + (started.enabled ? '开' : '关')
+    + (started.enabled && !started.installed ? '（⚠ 拦截器没装上：拿不到宿主窗口的 fetch）' : ''));
+
+  return api;
+}
+  /** 防截断实例。开关读 LS.antitrunc（= fano-antitrunc-v1，顶部 🛡 按钮同一个键）；
+      出厂默认值来自 CONFIG.antitrunc.enabled。创建时即按开关决定装不装拦截器。 */
+  const ANTITRUNC = createAntiTruncation({
+    key: LS.antitrunc,
+    defaultOn: CFG.antitrunc.enabled,
+    /* 渠道明显不支持时的提醒出口（只提醒，绝不自动关开关）。 */
+    onNotice: (msg) => notifyUser(msg, 'warn'),
+  });
+  /* ══ FANO_ANTITRUNC_END ═══════════════════════════════════════════════ */
+
+  /* ── 顶部脚本按钮（酒馆助手）───────────────────────────────────────
+     两个按钮：⚙ 芳乃（开合面板）、🛡 防截断（切换脚本层防截断的开关）。
+     要注意的三件事（前两条是 v2.8.1 那边踩过的坑）：
+       · 按钮必须**静态声明**在预设脚本的 button.buttons 里、且 button.enabled = true，
+         否则酒馆助手根本不渲染按钮区——光在运行时调 API 没用（build-preset 已照此写，
+         它声明的名字就是 CONFIG.button 里的那两个）。
+       · 宿主不一定给这些 API（不同版本/沙箱），所以全部**特性检测**：拿不到就静默跳过，
+         绝不能让面板因为按钮接不上而挂掉。
+       · 「🛡 防截断」这里只切开关：真正的装/卸在 panel/src/antitrunc.js 里做
+         （ANTITRUNC.setEnabled，存档键 LS.antitrunc = fano-antitrunc-v1）。
+         按钮**只在这里注册一次**：antitrunc.js 那边故意不注册，否则一次点击会被
+         两处监听各切一次，等于点一下没反应。 */
+
+  /** 酒馆助手的宿主 API：不同版本把它挂在 globalThis / window / 最外层窗口 /
+      TavernHelper 上，逐个试，拿不到返回 null（特性检测，绝不抛）。 */
+  function hostApi(name) {
+    const scopes = [];
+    const add = (o) => { try { if (o && scopes.indexOf(o) < 0) scopes.push(o); } catch { /* 忽略 */ } };
+    add(globalThis);
+    add(window);
+    add(HOST.win);
+    for (const s of scopes.slice()) { add(s.TavernHelper); add(s.tavernHelper); }
+    for (const s of scopes) {
+      try { if (typeof s[name] === 'function') return s[name].bind(s); } catch { /* 忽略 */ }
+    }
+    return null;
+  }
+
+  try {
+    if (!CFG.button.enabled) {
+      console.log('[芳乃面板] CONFIG.button.enabled = false：顶部按钮既不静态声明也不接线');
+    } else {
+      const declBtn = hostApi('appendInexistentScriptButtons');
+      const getEvt = hostApi('getButtonEvent');
+      const onEvt = hostApi('eventOn');
+      if (declBtn) declBtn([{ name: CFG.button.panel, visible: true }, { name: CFG.button.antitrunc, visible: true }]);
+      if (getEvt && onEvt) {
+        onEvt(getEvt(CFG.button.panel), () => {
+          state.open = !state.open;
+          writeLS(LS.open, state.open);
+          render();
+        });
+        onEvt(getEvt(CFG.button.antitrunc), () => {
+          /* 切开关 = 真的装/卸拦截器（见 panel/src/antitrunc.js 的 setEnabled）。 */
+          const want = !ANTITRUNC.isEnabled();
+          const st = ANTITRUNC.setEnabled(want);
+          /* 报"实际发生了什么"：开关记下了但没装上，就得直说，不能报个"已开启"就完事。 */
+          if (st.enabled && !st.installed) {
+            notifyUser('脚本层防截断：开关已打开，但拦截器没装上（拿不到宿主窗口的 fetch）——'
+              + '详情见控制台 __FANO_ANTITRUNC__', 'err');
+          } else {
+            notifyUser(`脚本层防截断：${st.enabled ? '已开启' : '已关闭'}`, st.enabled ? 'ok' : 'info');
+          }
+        });
+      } else {
+        console.warn('[芳乃面板] 宿主没给按钮 API（appendInexistentScriptButtons / getButtonEvent / eventOn），顶部按钮不接线');
+      }
+    }
+  } catch (e) {
+    console.warn('[芳乃面板] 顶部按钮接线失败（不影响面板本体）', e);
+  }
 
   /* 启动失败也要说话，不能静默什么都不画 */
   try {

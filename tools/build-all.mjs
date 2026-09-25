@@ -42,8 +42,8 @@ for (const step of STEPS) {
 console.log('\n────────────────────────────────────────');
 console.log('全部跑完。接着可以：');
 console.log('  node tools/selftest.mjs        # 包内自检（72 项）');
-console.log('  node tools/test-gui.mjs        # 解析 / 拼装内核（331 项）');
-console.log('  node tools/test-panel.mjs      # 面板逻辑（120 项）');
+console.log('  node tools/test-gui.mjs        # 解析 / 拼装内核（350 项）');
+console.log('  node tools/test-panel.mjs      # 面板逻辑（155 项）');
 console.log('  node tools/check-preset.mjs    # 样例预设的独立校验（108 项）');
 console.log('  node tools/check-gui-browser.mjs   # 十屏 DOM 取证（要本机 Chrome/Edge）');
 console.log('合成夹具是"结构等价、正文占位"的样例；要跑真实数据就把真预设放成同名再跑一遍这条命令。');

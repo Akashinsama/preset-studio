@@ -126,13 +126,13 @@ for (const f of ['README.md', '使用说明.md', '说明书.md']) copyFile(f);
 /* 发这些：在包里跑得起来，而且是"自己验证自己"的那一套。 */
 const TOOLS_KEEP = [
   'selftest.mjs',            // 装完先跑这个：库能不能加载、成品对不对
-  'check-preset.mjs',        // 成品预设的权威校验（108 项）
-  'test-panel.mjs',          // 面板逻辑（假 DOM，120 项）
-  'test-panelconfig.mjs',    // 面板配置/分组/壁纸/颜色（83 项）
+  'check-preset.mjs',        // 成品预设的权威校验（109 项）
+  'test-panel.mjs',          // 面板逻辑（假 DOM，155 项）
+  'test-panelconfig.mjs',    // 面板配置/分组/壁纸/颜色（101 项）
   'test-mobile.mjs',         // 手机场景（20 项）
-  'test-iframe.mjs',         // iframe 嵌套与加载时序（26 项）
+  'test-iframe.mjs',         // iframe 嵌套与加载时序（34 项）
   'test-regex.mjs',          // 思维链折叠链（30 项）
-  'test-gui.mjs',            // 解析 / 拼装内核 + M3 编辑端到端（331 项）
+  'test-gui.mjs',            // 解析 / 拼装内核 + M3 编辑端到端（350 项）
   'check-browser.mjs',       // 真 Chrome · 面板几何（58 项）
   'check-gui-browser.mjs',   // 真 Chrome · 编辑器十屏
   'build-all.mjs',           // 一条命令重跑整条链（缺夹具会自己造合成夹具）

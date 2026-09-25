@@ -32,11 +32,11 @@ node tools/build-all.mjs          # make-fixture → build-regex → build-panel
 ```bash
 node tools/selftest.mjs           # 72 项   包内自检：库 + 面板 + 样例预设
 node tools/test-regex.mjs         # 30 项   思维链折叠链逻辑
-node tools/test-gui.mjs           # 331 项  解析 / 拼装内核 + M3 编辑端到端
-node tools/test-panel.mjs         # 120 项  面板逻辑（假 DOM）
-node tools/test-panelconfig.mjs   # 83 项   面板外观配置夹取一致性
+node tools/test-gui.mjs           # 350 项  解析 / 拼装内核 + M3 编辑端到端
+node tools/test-panel.mjs         # 155 项  面板逻辑（假 DOM）
+node tools/test-panelconfig.mjs   # 101 项   面板外观配置夹取一致性
 node tools/test-mobile.mjs        # 20 项   手机场景
-node tools/test-iframe.mjs        # 26 项   iframe 与时序
+node tools/test-iframe.mjs        # 34 项   iframe 与时序
 node tools/check-preset.mjs       # 108 项  样例预设的独立校验
 node tools/check-browser.mjs      # 58 项   面板布局（真浏览器，本机 Chrome/Edge）
 node tools/check-gui-browser.mjs  # 十屏    生成器 GUI 的 DOM 取证（真浏览器）
@@ -74,7 +74,7 @@ node tools/check-gui-browser.mjs  # 十屏    生成器 GUI 的 DOM 取证（真
 | 结构 | 照 `Kemini_Dramatron_v3.1.json`（顶层 47 字段、采样参数、槽位结构、插件配置） |
 | 破甲 | 按模型分流：Gemini→Kemini / DeepSeek·GLM→梦鲸 / 其他→Izumi，面板上一键切换 |
 | 功能 | Izumi 的条目全量搬入，收敛成 23 个子集（单选下拉框 / 多选开关排 / 可填输入框） |
-| 面板 | `panel/fano-panel.js`，酒馆助手脚本，芳乃配色，自带悬浮球；外观与分组可配置（v0.4.0） |
+| 面板 | `panel/fano-panel.js`，酒馆助手脚本，芳乃配色，自带悬浮球；外观与分组可配置（v0.5.0） |
 | 芳乃 | 只由新增的三条主体层条目实现（默认关） |
 | 来源提示词 | **一字未改**，逐条哈希校验 |
 
@@ -95,6 +95,8 @@ node tools/check-gui-browser.mjs  # 十屏    生成器 GUI 的 DOM 取证（真
 - **自定义内容（自己填）**：7 条要你敲内容的条目，都是真正的输入框。
 - **锚点（固定开启）**：12 条只读，不给开关——它们占住世界书/角色卡/主提示的注入位，切换模型也不会动。
 - 其余模块默认折起，点标题展开；折起时标题右边仍写着当前状态。
+- **🛡 防截断（顶部按钮）**：默认开。开了以后模型把正文放进一个合成函数调用的参数里回传，绕开「纯文本流被渠道掐断」那条路。开关存在浏览器里（键 `fano-antitrunc-v1`，**与 v2.8.1 那支共用**，换过来状态不丢）；关掉就把 `window.fetch` 上的包装整个摘掉。这一层是从 v2.8.1 搬来的，**逐项对照**（搬了哪些、改了哪几处、哪些没搬、哪些没验过）见 [`spec/防截断移植对照.md`](spec/防截断移植对照.md)。
+- **长按条目改正文**：按住面板上任一条目（多选开关行、单选下拉下面那行"当前条目"、只读区里的名字）就打开它的正文编辑器，改完点保存——和其它操作一样**只写回预设一次**。手机上滑动就是滚动，不会误触；长按后紧跟的那次点击会被吞掉，所以不会顺手把条目开关掉。酒馆的**注入位标记**（聊天记录/角色卡/世界书这些位置标记）长按只给看：它们的正文必须为空，写进去会让对应内容进不了上下文。时长与开关在生成器的「面板外观 → 交互」里调。
 - 改完任何选项不会跳回顶部；每次操作只写回一次预设。
 
 ### 思考方式与显示形态
@@ -137,14 +139,14 @@ node tools/build-preview.mjs   # 预览假数据 ← 必须放在 preset 之后
 node tools/check-preset.mjs           # 成品独立校验（108 项）
 node tools/selftest.mjs               # 包内自检：库加载 + 成品 + 空编辑逐字节 + 面板 + zip（70 项）
 node tools/test-regex.mjs             # 折叠链（30 项）
-node tools/test-panel.mjs             # 面板逻辑（120 项）
-node tools/test-panelconfig.mjs       # 面板外观配置 + 分组覆盖 + 壁纸分层 + 颜色不空转（83 项）
+node tools/test-panel.mjs             # 面板逻辑（155 项）
+node tools/test-panelconfig.mjs       # 面板外观配置 + 分组覆盖 + 壁纸分层 + 颜色不空转（101 项）
 node tools/test-mobile.mjs            # 手机场景（20 项，假 DOM）
-node tools/test-iframe.mjs            # iframe 嵌套与加载时序（26 项，假 DOM）
-node tools/test-gui.mjs               # 生成器内核 M0–M6 + EJS + 搭建 + 导出前检查（331 项）
+node tools/test-iframe.mjs            # iframe 嵌套与加载时序（34 项，假 DOM）
+node tools/test-gui.mjs               # 生成器内核 M0–M6 + EJS + 搭建 + 导出前检查（350 项）
 node tools/check-browser.mjs          # 真浏览器 · 桌面视口（58 项）
 node tools/check-browser.mjs --mobile # 真浏览器 · 手机视口（58 项）
-node tools/check-gui-browser.mjs      # 真浏览器 · 生成器 GUI 十屏（198 项 + 数 DOM）
+node tools/check-gui-browser.mjs      # 真浏览器 · 生成器 GUI 十屏（228 项 + 数 DOM）
 node tools/build-gui-demo.mjs         # 生成器演示数据（Izumi + 芳乃 + 面板快照 + 假酒馆 API）
 node tools/build-package.mjs          # 打包：dist/芳乃预设生成器/ + zip（只带芳乃预设当示例）
 ```
@@ -167,10 +169,10 @@ node tools/build-package.mjs     # → dist/芳乃预设生成器/ 与 dist/芳�
 ```bash
 node tools/selftest.mjs                                  # 70 项
 node tools/check-preset.mjs                              # 108 项
-node tools/test-panel.mjs                                # 120 项
-node tools/test-panelconfig.mjs                          # 83 项
+node tools/test-panel.mjs                                # 155 项
+node tools/test-panelconfig.mjs                          # 101 项
 node tools/test-mobile.mjs                               # 20 项
-node tools/test-iframe.mjs                               # 26 项
+node tools/test-iframe.mjs                               # 34 项
 node tools/test-regex.mjs                                # 30 项
 ```
 
@@ -296,9 +298,10 @@ EJS 模板代码。这个工具会：解析时数出标签数量、在标签族�
 
 ### 面板外观怎么落地（M5）
 
-面板升到 **0.4.0**，多了两样东西（两段都用"标记围起来的配置块"，生成器只替换块内内容）：
+面板升到 **0.5.0**，外观与分组两样东西都用"标记围起来的配置块"（生成器只替换块内内容）：
 
-1. **`CONFIG`（外观）**：颜色覆盖、悬浮球、窗口尺寸、圆角、缩放、不透明度、磨砂、壁纸。
+1. **`CONFIG`（外观）**：颜色覆盖、悬浮球、窗口尺寸、圆角、缩放、不透明度、磨砂、壁纸，
+   以及**长按条目改正文**这个手势（`edit.longPress`：开/关 + 毫秒）。
 2. **`GROUPS_OVERRIDE`（分组）**：默认 `null`（用自带那套）；写了就按它管条目——这是把面板
    装到**别的预设**上的前提。窗口本身分四层：底色层（带不透明度与磨砂）→ 壁纸层 → 压暗层 → 内容，
    分成四层是为了让"半透明 + 壁纸 + 字还看得清"三件事互不打架。
@@ -306,6 +309,11 @@ EJS 模板代码。这个工具会：解析时数出标签数量、在标签族�
 两处实现必须一致，所以有一条测试专门**锁死**它们：`tools/test-panelconfig.mjs` 会把配置写进面板源码、
 真加载面板，再拿面板自己算出的生效值和 `tools/gui/lib/panelconfig.js` 的夹取结果**逐字段比对**，
 有一处漂移就报错。
+
+**导入的预设带的是旧面板（CONFIG 里没有后来才加的键）时也要能改**：外观页读配置一律按出厂形状
+**补齐**（`mergeConfig(DEFAULT_CONFIG, 读到的)`），所以老面板打开「面板外观」不会因为缺一个键整页白掉，
+按一次「应用到面板脚本」还会把缺的键补进那份脚本。这一条有页面级回归用例钉着
+（`check-gui-browser` 的自检里：「老面板打开『面板外观』不抛异常」）。
 
 **预览不是"另画一个像的"**：预览用的是面板自己的那一大段 CSS，只额外加一小段"把 fixed 悬浮定位改成摆位"
 的作用域覆盖——所以预览里看到的颜色/字号/圆角/壁纸，就是装上去之后的。
@@ -350,6 +358,8 @@ M0/M1/M2 看的、体检的、导出的，是同一条路径出来的同一份�
 | 删掉了注入位条目（世界书/角色卡就进不来了） | 必改（要清正文就清正文，别删条目） |
 | 新增条目没有名字 | 必改 |
 | 位置标记被关掉 | 提醒（对应内容进不了上下文；它的正文为空是**对的**） |
+| 预设里那份面板是**旧版**（没有"长按条目改正文"） | 必改（有一键补救「换成新版面板」，也有活路「就带这个旧面板导出」） |
+| 预设自带的面板**不是这套**（没有我们的分组块） | 提醒（人家预设里本来就有个脚本，很正常；不拦、也不提供替换） |
 | 改了条目名 | 提醒（按名字匹配的面板/正则会找不到目标） |
 | 把条目移出提示词列表 | 提醒（它不再进入上下文） |
 | 名字重复 / 未知槽位 | 提醒 |
@@ -385,8 +395,8 @@ M0/M1/M2 看的、体检的、导出的，是同一条路径出来的同一份�
 体检器自身的准确性也当成测试对象：**拿成品预设当反例**——它已经过了 108 项构建校验，
 如果体检器在它身上报"必改"，那多半是体检器误报（测试里就是这么断言的，必改为 0）。
 
-自检：`node tools/test-gui.mjs`（331 项，纯 Node）＋ `node tools/check-gui-browser.mjs`
-（198 项页面断言 + 逐屏数 DOM，真 Chrome，桌面/手机两个视口）。
+自检：`node tools/test-gui.mjs`（350 项，纯 Node）＋ `node tools/check-gui-browser.mjs`
+（228 项页面断言 + 逐屏数 DOM，真 Chrome，桌面/手机两个视口）。
 
 **导出前检查会盯住"面板到底进没进这个文件"**：面板是**脚本**（进 `extensions.tavern_helper.scripts`），
 条目是 `prompts` ——两条不同的路。在画布上搭了功能区/改了外观却还没点「装进这份预设」时，

@@ -810,13 +810,13 @@ verifySourceIntact(json, edit, model, fingerprintFn) // → { checked, changed, 
 
 | 命令 | 覆盖内容 | 实测 |
 | --- | --- | --- |
-| `node tools/test-gui.mjs` | M0 解析 / M1 拼装（含人造小预设的 setvar/getvar/addvar 时序语义）、M2 体检的**每个不变式都造一个反例**、M3 编辑器的空编辑逐字节等价与来源 sha1 自证、M4 骨架、正则编辑、脚本编辑、面板外观端到端、分组推断、EJS 识别、`PresetBuildOps` 三层操作 | 通过 331 项 |
-| `node tools/test-panelconfig.mjs` | `panelconfig.js` 的 `clampConfig()` 与**真加载的面板** `__FANO_PANEL__.config().effective` 逐字段比对（防漂移）、配置块抠取/回写只动一段、壁纸图层、缩放、20 个 token 都有中文说明且都真被用到、`GROUPS_OVERRIDE` 读写与面板真的照它渲染、"装进预设"导出的脚本真能跑起来 | 通过 81 项 |
-| `node tools/test-panel.mjs` | `panel/fano-panel.js` 的面板逻辑（假 DOM 真加载）：手风琴、破甲骨架与档位、档位不被切换清掉、角色名替换、滚动位置、每次操作只写回一次 | 通过 120 项 |
+| `node tools/test-gui.mjs` | M0 解析 / M1 拼装（含人造小预设的 setvar/getvar/addvar 时序语义）、M2 体检的**每个不变式都造一个反例**、M3 编辑器的空编辑逐字节等价与来源 sha1 自证、M4 骨架、正则编辑、脚本编辑、面板外观端到端、分组推断、EJS 识别、`PresetBuildOps` 三层操作 | 通过 350 项 |
+| `node tools/test-panelconfig.mjs` | `panelconfig.js` 的 `clampConfig()` 与**真加载的面板** `__FANO_PANEL__.config().effective` 逐字段比对（防漂移）、配置块抠取/回写只动一段、壁纸图层、缩放、20 个 token 都有中文说明且都真被用到、`GROUPS_OVERRIDE` 读写与面板真的照它渲染、"装进预设"导出的脚本真能跑起来 | 通过 101 项 |
+| `node tools/test-panel.mjs` | `panel/fano-panel.js` 的面板逻辑（假 DOM 真加载）：手风琴、破甲骨架与档位、档位不被切换清掉、角色名替换、滚动位置、每次操作只写回一次、长按条目改正文（含取消/吞点击/注入位标记只读） | 通过 155 项 |
 | `node tools/check-preset.mjs` | **成品预设的权威校验**：结构、**来源提示词一字未改（sha1 硬约束）**、新增条目范围、内置槽位唯一性与锚点、面板兼容性、破甲初始状态、扩展（面板与正则）、思维链标签互斥 | 通过 108 项 |
 | `node tools/test-regex.mjs` | `preset/fano-thinking-chain.json` 的折叠链：1 块 → Izumi 形态、≥2 块 → Kemini 形态、标签/无块/混杂场景 | 通过 30 项 |
 | `node tools/test-mobile.mjs` | 手机场景（390×844 视口、桌面遗留坐标）：尺寸/坐标夹回视口、旋转后重夹、`diagnose()` 能报出挂错层 | 通过 20 项 |
-| `node tools/test-iframe.mjs` | 面板必须挂到最外层同源文档：两层 iframe、顶层 body 未就绪要等、父窗口跨域时退回本地并示警 | 通过 26 项 |
+| `node tools/test-iframe.mjs` | 面板必须挂到最外层同源文档：两层 iframe、顶层 body 未就绪要等、父窗口跨域时退回本地并示警 | 通过 34 项 |
 
 - **`tools/check-preset.mjs` 是预设的权威校验器**：它不借用 `build-preset.mjs` 的任何中间结果，直接读 `preset/芳乃预设.json` + 三份源预设（`Izumi_0914.json`、`Kemini_Dramatron_v3.1.json`、`梦鲸思客V4-0915.json`）+ `spec/`，重新推导一遍再比对；"来源提示词一字未改"这条硬约束由它用 sha1 逐条裁定。任何工具链的改动，最后都要过它。
 - 顺带一条诊断脚本（不是断言）：`node tools/diag-checkup.mjs [文件.json …]` 打印 M2 体检清单（默认 `Izumi_0914.json` 与 `preset/芳乃预设.json`），实测成品预设上 `必改 0 · 建议 3 · 提示 2`。

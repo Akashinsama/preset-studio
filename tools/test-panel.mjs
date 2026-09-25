@@ -11,6 +11,8 @@
  *   · 角色名替换表生效（匹配用源名，显示用芳乃名）
  *   · 改完选项不跳回顶部（scrollTop 保持）
  *   · 每次操作只写回一次预设
+ *   · 脚本层防截断：顶部「🛡 防截断」点一下真的装/卸拦截器，假上游发一次 generate，
+ *     正文真的从合成函数的 content 参数里回来（finish_reason 改回 stop）
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +20,7 @@ import { needAll } from './lib/fixtures.mjs';
 
 /* 夹具守卫：面板跑在**假酒馆宿主**里，宿主数据是从成品预设生成的（panel/preview-host.js）。 */
 needAll([path.join('panel', 'preview-host.js'), path.join('preset', '芳乃预设.json')],
-  '面板逻辑测试（120 项）',
+  '面板逻辑测试（137 项）',
   'preview-host.js 由 node tools/build-preview.mjs 生成，它要成品预设');
 
 const ROOT = process.cwd();
@@ -108,6 +110,10 @@ function makeDom() {
       };
       return search(document.body) || search(document.head) || null;
     },
+    /* 真文档有 addEventListener（面板要往它上面挂 keydown / 长按吞点击）。
+       假文档早先没给，于是 render() 走到最后一步就抛异常——面板能画出来，
+       但"启动失败"会打印一行，长按这条路径也没法测。 */
+    addEventListener() {},
   };
   return { document, all };
 }
@@ -132,7 +138,46 @@ const localStorage = {
 };
 win.localStorage = localStorage;
 
+/* 脚本层防截断要用到的两样东西，必须在面板加载**之前**就位：
+   1) window.fetch —— 拦截器就是往它上面挂包装（这里放一个记录请求的假后端）
+   2) 顶部按钮 API —— 面板接线时用特性检测找它们（找不到就静默跳过）
+      注意：假宿主 preview-host.js 自己也放了一个 `window.eventOn` 空桩，
+      所以这三个 API 要等它加载完再盖一次（见下面那段），否则面板接上去的是宿主的空实现。
+   事件名与按钮名跟 CONFIG.button 里的一致（默认就是这两个）。 */
+const requests = [];
+const rawFetch = async (url, init) => {
+  const body = JSON.parse(init.body);
+  requests.push({ url, body });
+  const chunk = (delta, finish) => 'data: ' + JSON.stringify({
+    id: 'chatcmpl-test', model: 'fake', created: 1,
+    choices: [{ index: 0, delta, finish_reason: finish ?? null }],
+  }) + '\n\n';
+  /* 假上游：把正文塞进那个合成函数的 content 参数里回传（分两块，模拟流式切片）。
+     要是请求里没有合成函数（开关关着，拦截器没参与），就照常回一段普通正文。 */
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  const tool = tools.length ? tools[tools.length - 1].function.name : null;
+  const sse = tool
+    ? chunk({ tool_calls: [{ index: 0, function: { name: tool, arguments: '{"content":"完整正文' } }] })
+      + chunk({ tool_calls: [{ index: 0, function: { arguments: '·二号"}' } }] })
+      + chunk({}, 'tool_calls')
+    : chunk({ content: '普通通道的正文' }) + chunk({}, 'stop');
+  return new Response(sse + 'data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+};
+win.fetch = rawFetch;
+const declaredButtons = [];
+const buttonEvents = new Map();
+const clickButton = (name) => {
+  const fn = buttonEvents.get('evt:' + name);
+  if (fn) fn();
+  return !!fn;
+};
+
 load(fs.readFileSync(P('panel', 'preview-host.js'), 'utf8'), win, dom.document, localStorage);
+
+/* 假宿主加载完再装按钮 API：它自己那个 `window.eventOn` 空桩会盖掉先装的（见上面注释）。 */
+win.appendInexistentScriptButtons = (list) => { declaredButtons.push(...list.map((b) => b.name)); };
+win.getButtonEvent = (name) => 'evt:' + name;
+win.eventOn = (evt, fn) => { buttonEvents.set(evt, fn); };
 
 let writes = 0;
 const rawWrite = win.updatePresetWith;
@@ -574,6 +619,172 @@ ok('有「全部折起」', !!foldBtn);
 foldBtn.dispatchEvent('click');
 await tick(); await tick();
 ok('全部折起后没有控件', openIds().length === 0 && nodes().filter((n) => n.tagName === 'SELECT').length === 0);
+
+console.log('\n[13] 脚本层防截断：开关真的装/卸，正文真的从传输函数里回来');
+{
+  const AT = win.__FANO_ANTITRUNC__;
+  const KEY = 'fano-antitrunc-v1';
+  ok('控制台 API 在（v2.8.1 那套 __FANO_ANTITRUNC__）', !!AT && typeof AT.isEnabled === 'function' && typeof AT.lastRun === 'function',
+    Object.keys(AT ?? {}).join('、'));
+  ok('锚点沿用 <format>', AT.anchor === '<format>', String(AT.anchor));
+  ok('面板把两个按钮声明给了宿主', declaredButtons.join('|') === '⚙ 芳乃|🛡 防截断', declaredButtons.join('|'));
+  ok('默认开着，且拦截器真挂在 window.fetch 上（不是只改了个标志位）',
+    AT.isEnabled() === true && AT.installed() === true && win.fetch !== rawFetch);
+
+  /* 点一下「🛡 防截断」：必须真的卸下来（window.fetch 回到原样），并把状态写进存档 */
+  ok('点得到「🛡 防截断」这个按钮', clickButton('🛡 防截断'), '注册到的事件：' + [...buttonEvents.keys()].join('｜'));
+  ok('点一下 = 关：包装从 window.fetch 上摘掉了', AT.isEnabled() === false && AT.installed() === false && win.fetch === rawFetch);
+  ok('存档写成 v2.8.1 认的 "0"（换回那一支时状态不丢）', localStorage.getItem(KEY) === '0', String(localStorage.getItem(KEY)));
+  clickButton('🛡 防截断');
+  ok('再点一下 = 开：拦截器装了回来', AT.isEnabled() === true && AT.installed() === true && win.fetch !== rawFetch);
+  ok('存档写成 "1"', localStorage.getItem(KEY) === '1', String(localStorage.getItem(KEY)));
+
+  /* 真发一次 generate：假上游把正文塞进合成函数的 content 参数回传 */
+  const res = await win.fetch('/api/backends/openai/generate', {
+    method: 'POST',
+    body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: '<format> 走起' }] }),
+  });
+  const sent = requests[0].body;
+  const tool = sent.tools[sent.tools.length - 1].function.name;
+  ok('请求被改过：多了一个合成传输函数', /^emit_complete_response_/.test(tool), tool);
+  ok('tool_choice 被设成 auto（不抢用户自己的工具调用）', sent.tool_choice === 'auto', String(sent.tool_choice));
+  ok('控制提示挂在 <format> 锚点**之前**（anchored，不是丢到末尾）',
+    sent.messages.length === 2 && String(sent.messages[0].content).includes(tool)
+    && String(sent.messages[1].content).includes('<format>'),
+    JSON.stringify(sent.messages.map((m) => m.role)));
+
+  const payloads = (await res.text()).split('\n\n')
+    .filter((l) => l.startsWith('data: ') && l.slice(6) !== '[DONE]')
+    .map((l) => JSON.parse(l.slice(6)));
+  const bodyText = payloads.map((p) => p.choices?.[0]?.delta?.content ?? '').join('');
+  const finishes = payloads.map((p) => p.choices?.[0]?.finish_reason).filter(Boolean);
+  ok('正文从函数调用参数里完整回来了（分块拼接后一字不少）', bodyText === '完整正文·二号', JSON.stringify(bodyText));
+  ok('finish_reason 被改回 stop（下游看不到 tool_calls）', finishes.includes('stop') && !finishes.includes('tool_calls'), JSON.stringify(finishes));
+  ok('合成 tool_calls 被剥掉了（下游只看到正文）', !payloads.some((p) => p.choices?.[0]?.delta?.tool_calls));
+  const run = AT.lastRun();
+  ok('lastRun() 报得出结果：transported + 字数 + 分块',
+    !!run && run.outcome === 'transported' && run.decodedChars === 7 && run.emittedChars === 7
+    && run.decodedChunks === 2 && run.streamed === true && run.endedCleanly === true,
+    JSON.stringify(run));
+
+  /* 关掉之后：请求原样透传，一个字段都不许动 */
+  clickButton('🛡 防截断');
+  requests.length = 0;
+  await win.fetch('/api/backends/openai/generate', {
+    method: 'POST', body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: '<format> 走起' }] }),
+  });
+  ok('关掉后请求原样透传（没有合成函数、没有控制提示）',
+    requests[0].body.tools === undefined && requests[0].body.messages.length === 1,
+    JSON.stringify(requests[0].body));
+  clickButton('🛡 防截断');   /* 复位：别把开关状态留给后面的用例 */
+}
+
+console.log('\n[14] 长按条目 → 改这一条的正文');
+{
+  const api = win.__FANO_PANEL__;
+  const ms = api.config().effective.edit.longPress.ms;
+  const sleep = (n) => new Promise((r) => setTimeout(r, n));
+  const pev = (node, type, x = 10, y = 10) => node.dispatchEvent(type, {
+    clientX: x, clientY: y, button: 0, target: node, preventDefault() {}, stopPropagation() {},
+  });
+  const maskNow = () => dom.document.getElementById('fano-preset-panel-v1-edit');
+  const taIn = (node) => (node ? walk(node).find((n) => n.tagName === 'TEXTAREA') : null);
+  const miniIn = (node, label) => walk(node).find((n) => n.className === 'fp-mini' && n.textContent === label);
+
+  ok('面板报出了长按能力（编辑器导出前检查认它）',
+    typeof api.caps === 'function' && api.caps().longPressEdit === true, JSON.stringify(api.caps && api.caps()));
+  ok('长按毫秒数来自配置', ms === 500, String(ms));
+
+  /* ── 多选开关排：每一行都能长按 ── */
+  await expand('guard');
+  const guardG = groups.find((g) => g.id === 'guard');
+  const name = guardG.members.find((m) => find0(m));
+  const rowOf = (n) => switchesIn('guard').find((x) => x.children[0] && x.children[0].textContent === n);
+  const wasOn = enabledSet().has(name);
+
+  pev(rowOf(name), 'pointerdown');
+  pev(rowOf(name), 'pointerup');
+  rowOf(name).dispatchEvent('click');
+  await tick(); await tick();
+  ok('短按仍然是"开关这一条"（点一下的语义没被长按抢掉）', enabledSet().has(name) !== wasOn,
+    `${wasOn} → ${enabledSet().has(name)}`);
+  ok('短按不会打开编辑器', !maskNow());
+
+  const row2 = rowOf(name);
+  pev(row2, 'pointerdown');
+  await sleep(ms + 80);
+  const mask = maskNow();
+  ok('长按打开正文编辑器', !!mask, mask ? '' : '没出现浮层');
+  ok('编辑器里放的就是这一条的正文（字数对得上）',
+    !!taIn(mask) && taIn(mask).value === contentOf(name), taIn(mask) ? `${taIn(mask).value.length} 字` : '没有输入框');
+  pev(row2, 'pointerup');
+
+  /* 长按之后紧跟的那次 click：浏览器可能把它派发到**已经摘下来的旧节点**上，
+     行里的守卫必须把它吞掉，否则长按一下就顺手把这一条开关掉。 */
+  const onAfterHold = enabledSet().has(name);
+  row2.dispatchEvent('click');            // row2 就是那次重渲染里被摘下来的旧节点
+  await tick(); await tick();
+  ok('长按后紧跟的那次点击被吞掉（没有顺手开关这一条）', enabledSet().has(name) === onAfterHold,
+    `${onAfterHold} → ${enabledSet().has(name)}`);
+  pev(rowOf(name), 'pointerdown');
+  rowOf(name).dispatchEvent('click');
+  pev(rowOf(name), 'pointerup');
+  await tick(); await tick();
+  ok('只吞一次：下一次点击照常开关', enabledSet().has(name) !== onAfterHold);
+
+  /* ── 保存：只写回一次，正文真的进预设，浮层收起 ── */
+  const box = maskNow();
+  const ta = taIn(box);
+  const w0 = writes;
+  ta.value = ta.value + '\n（长按补的一行）';
+  miniIn(box, '保存').dispatchEvent('click');
+  await tick(); await tick();
+  ok('保存只写回一次预设', writes - w0 === 1, `实际 ${writes - w0}`);
+  ok('正文真的进了预设', contentOf(name) === ta.value, `${contentOf(name).length} 字`);
+  ok('保存后浮层自己收起', !maskNow());
+
+  /* ── 按住期间移动 = 在滚动，不是长按 ── */
+  const row3 = rowOf(name);
+  pev(row3, 'pointerdown', 10, 10);
+  pev(row3, 'pointermove', 46, 10);        // 挪了 36px
+  await sleep(ms + 80);
+  ok('按住期间移动超过 8px 就取消（手机上那是滚动）', !maskNow());
+  pev(row3, 'pointerup');
+
+  /* ── 单选组：下拉框挂不上长按，它的条目行在下拉框下面 ── */
+  const sg = groups.find((g) => g.mode === 'single' && g.members.some((m) => enabledSet().has(m) && find0(m)));
+  await expand(sg.id);
+  const srow = switchesIn(sg.id)[0];
+  const curName = sg.members.find((m) => enabledSet().has(m) && find0(m));
+  ok('单选组里也有可长按的"当前条目"行', !!srow && srow.children[0].textContent === curName,
+    srow ? srow.children[0].textContent : '没有这一行');
+  if (srow) {
+    pev(srow, 'pointerdown');
+    await sleep(ms + 80);
+    const smask = maskNow();
+    ok('长按它打开的就是当前选中那一条', !!taIn(smask) && taIn(smask).value === contentOf(curName),
+      `${curName}`);
+    pev(srow, 'pointerup');
+    api.closeEditor();
+    await tick();
+  }
+
+  /* ── 只读区（注入位标记）：能长按打开，但只给看 ── */
+  await expand('anchors');
+  const markerName = groups.find((g) => g.id === 'anchors').members.find((m) => find0(m) && find0(m).marker === true);
+  const mrow = switchesIn('anchors').find((x) => x.children[0].textContent === markerName);
+  pev(mrow, 'pointerdown');
+  await sleep(ms + 80);
+  const mmask = maskNow();
+  ok('注入位标记也能长按打开', !!mmask && taIn(mmask).value === contentOf(markerName), String(markerName));
+  ok('但只给看：输入框只读、没有保存按钮',
+    !!taIn(mmask) && taIn(mmask).readOnly === true && !miniIn(mmask, '保存'));
+  api.closeEditor();
+  await tick();
+  ok('closeEditor() 能收起浮层', !maskNow());
+  ok('只读区的那一行也在（名字可长按）', switchesIn('anchors').length === groups.find((g) => g.id === 'anchors').members.length,
+    `${switchesIn('anchors').length} 行`);
+}
 
 console.log('\n────────────────────────────────────────');
 console.log(`通过 ${pass} 项，失败 ${fails.length} 项　总写回次数 ${writes}`);

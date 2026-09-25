@@ -110,6 +110,7 @@
       state.groupsNotes = null;
       state.buildSel = { kind: 'none' };
       state.panelIgnored = null;
+      state.panelStaleIgnored = null;
     }
     state.groupsDraftKey = key;
     state.edit = p.edit;
@@ -203,9 +204,12 @@
        变成"动过外观"，于是每导入一份没有面板的预设都会被拦住导出。 */
     const A0 = state.appearance;
     const appearance = !!A0 && (A0.dirty === true || A0.applied === true);
-    if (!groups && !appearance) return { groups: 0, appearance: false, unapplied: false, ignored: false };
+    /* 两条"我说了算"的活路，都按 revision 记账：动了别的地方就会重新问你。 */
     const ignored = !!state.panelIgnored
       && state.panelIgnored.key === (p.file || '') && state.panelIgnored.rev === state.rev;
+    const staleIgnored = !!state.panelStaleIgnored
+      && state.panelStaleIgnored.key === (p.file || '') && state.panelStaleIgnored.rev === state.rev;
+    if (!groups && !appearance) return { groups: 0, appearance: false, unapplied: false, ignored, staleIgnored };
     let unapplied = false;
     if (appearance || groups) {
       const A = ensureAppearance();
@@ -223,7 +227,7 @@
         unapplied = cfgChanged || grpChanged;
       }
     }
-    return { groups, appearance, unapplied, ignored };
+    return { groups, appearance, unapplied, ignored, staleIgnored };
   }
 
   /**
@@ -244,10 +248,33 @@
     if (has) {
       const s = panels[0];
       const size = Math.round(s.bytes / 1024);
+      const sup = PE.panelSupport ? PE.panelSupport(s.content) : { ours: false, missing: [] };
+      const stale = sup.ours && sup.missing.includes('longPressEdit');
+      const ignoringStale = !!pi && pi.staleIgnored === true;
       if (!s.enabled) {
         level = 'warn';
         pill = h('span', { class: 'pill warn', text: '面板脚本被关着' });
         lines.push(`「${s.name}」（${size}KB）的 enabled 是关的——酒馆助手不会执行它，悬浮球不会出现。去「脚本编辑」打开它。`);
+      } else if (stale && !ignoringStale) {
+        level = 'err';
+        pill = h('span', { class: 'pill err', text: '面板是旧版：不能长按改正文' });
+        lines.push(`面板脚本「${s.name}」（${size}KB）里**没有"长按条目改正文"**——导出去以后在酒馆里长按条目不会有反应。`);
+        lines.push('点「换成新版面板」把代码换成新版：你在「面板外观 / 面板分组」里改过的设置（标题、颜色、球、窗口、分组）会带过去。');
+        btns.push(h('button', { class: 'btn', text: '换成新版面板', onclick: () => upgradePanelScript() }));
+        btns.push(h('button', {
+          class: 'btn ghost', text: '就带这个旧面板导出', title: '这份预设的面板另有来路、不想被换掉',
+          onclick: () => {
+            const p = preset();
+            state.panelStaleIgnored = { key: p ? (p.file || '') : '', rev: state.rev };
+            banner('好——这次带着这个旧面板导出。长按改正文不会有；改动一下别的地方，它会再问你一次。', 'ok');
+            renderAll();
+          },
+        }));
+      } else if (stale) {
+        level = 'warn';
+        pill = h('span', { class: 'pill warn', text: '带着旧版面板导出（已确认）' });
+        lines.push(`面板脚本「${s.name}」（${size}KB）是旧版：**长按条目改正文**不会有。`);
+        btns.push(h('button', { class: 'btn', text: '还是换成新版面板', onclick: () => upgradePanelScript() }));
       } else if (intent && pi.unapplied) {
         level = 'warn';
         pill = h('span', { class: 'pill warn', text: '界面上的改动还没应用' });
@@ -1928,6 +1955,37 @@
           ]),
           h('div', { class: 'dim', style: { marginTop: '8px' }, text: '标题在上面那张卡里。' }),
       ]));
+      /* 交互：长按条目改正文（面板 0.5.0 起的能力）。
+         显示值走 clampConfig（夹取后的生效值，缺键/脏值都有默认），
+         写入走 setLongPress：老面板的 CONFIG 里没有 edit，这一步会把它建出来。 */
+      const ED = PC.clampConfig(cfg).edit.longPress;
+      const setLongPress = (patch) => {
+        if (!cfg.edit || typeof cfg.edit !== 'object') cfg.edit = {};
+        const cur = cfg.edit.longPress && typeof cfg.edit.longPress === 'object' ? cfg.edit.longPress : {};
+        cfg.edit.longPress = { ...cur, ...patch };
+        appearanceMarkDirty();
+        bump();
+      };
+      left.push(h('div', { class: 'card' }, [
+          h('h3', {}, ['交互　',
+            ED.enabled ? h('span', { class: 'pill on', text: '长按看/改正文：开' }) : h('span', { class: 'pill off', text: '长按看/改正文：关' })]),
+          h('div', { class: 'checkline' }, [
+            h('b', { text: '在酒馆里长按条目　' }),
+            '按住面板上任一条目（多选开关行、单选下拉下面那行、只读区的名字）就打开它的正文编辑器，改完点保存——和其它操作一样只写回预设一次。',
+          ]),
+          h('div', { class: 'kpis' }, [
+            h('label', { class: 'numfield' }, [
+              h('span', { text: '长按改正文' }),
+              h('input', {
+                type: 'checkbox', checked: ED.enabled,
+                onchange: (ev) => setLongPress({ enabled: ev.target.checked }),
+              }),
+              h('span', { class: 'dim', text: '关掉就整个手势都不存在（面板上也不会提"长按"两个字）' }),
+            ]),
+            numField('长按时长 ms', ED.ms, { min: 250, max: 1500, step: 50 }, (v) => setLongPress({ ms: v }), '按这么久算长按；移动超过 8px 就取消'),
+          ]),
+          h('p', { class: 'viewdesc', text: '判定规则：按住不动才算长按；手机上一滑动就是"在滚动"，不会误触；长按触发后紧跟着的那次点击会被吞掉，所以不会顺手把条目开关掉。酒馆的注入位标记（聊天记录/角色卡/世界书这些位置标记）长按只给看——它们的正文必须为空，写进去会让对应内容进不了上下文。' }),
+      ]));
       /* 壁纸 */
       left.push(h('div', { class: 'card' }, [
           h('h3', {}, ['壁纸　', WALL.url ? h('span', { class: 'pill on', text: '已设置' }) : h('span', { class: 'pill off', text: '没用壁纸' })]),
@@ -2571,6 +2629,7 @@
     state.appearance = null;          // 重新读：现在这份预设里已经有面板脚本了
     state.groupsAttached = true;
     state.panelIgnored = null;
+    state.panelStaleIgnored = null;
     bump();
     return s;
   }
@@ -2611,6 +2670,7 @@
     A.dirty = false;
     A.applied = true;
     state.panelIgnored = null;
+    state.panelStaleIgnored = null;
     markDraftBaseline();          // 刚写进去的这份草稿已经"落地"了，不再是待应用状态
     bump();
     if (!quiet) banner('已把外观与分组写进面板脚本（只替换配置与分组那两段，面板代码一行不动）。去「导出新预设」生成文件。', 'ok');
@@ -2620,6 +2680,31 @@
   function applyGroups() {
     if (!state.groupsDraft) { banner('还没有草稿——先点「按这份预设自动推断」。', 'err'); return; }
     applyPanelEdits();
+  }
+
+  /**
+   * 一键补救：把预设里那份**旧面板**换成新版面板脚本。
+   *
+   * 只换代码，保住"你的设置"：CONFIG（外观，标题落成具体的字）与 GROUPS_OVERRIDE（分组）。
+   * 之所以要这一步：面板是**脚本**，预设里嵌的是那一刻的快照——旧预设里带着的是旧面板，
+   * 于是"我明明改了、你却说还是不行"（面板升级了，旧预设里那份却不会跟着变）。
+   * 旧脚本里除这两段之外的东西搬不过去（那是另一版实现），换之前界面上会说清楚。
+   */
+  function upgradePanelScript() {
+    const p = preset();
+    if (!p || !PE || !PC || !PANEL_DEMO?.source) { banner('面板源码没载入（先跑 node tools/build-gui-demo.mjs）。', 'err'); return null; }
+    const hit = PE.panelScriptViews(state.edit, p.json, p.model)[0];
+    if (!hit) { banner('这份预设里没有面板脚本——先去「面板外观」点「装进这份预设」。', 'err'); return null; }
+    let src;
+    try {
+      src = PE.upgradePanelContent(hit.content, PANEL_DEMO.source, { title: panelTitle() });
+    } catch (e) { banner('换成新版面板失败：' + e.message, 'err'); return null; }
+    PE.setScriptField(state.edit, p.json, hit.ref, 'content', src);
+    state.appearance = null;        // 重新读一遍：现在脚本是新的了
+    state.panelStaleIgnored = null;
+    bump();
+    banner('已把面板脚本换成新版（你改过的外观与分组都带过去了）。去「导出新预设」生成文件。', 'ok');
+    return src;
   }
 
   /**
@@ -2924,7 +3009,21 @@
         if (!hit.isNew) sourceFallbackTitle = PC.extractFallbackTitle ? PC.extractFallbackTitle(content) : '';
       }
     }
-    const config = (PC && PC.extractConfig(content)) || PC.mergeConfig(PC.DEFAULT_CONFIG, PANEL_DEMO?.config ?? {});
+    /* 读配置时一律**按出厂形状补齐**：预设里那份面板可能是旧版（或者干脆是别人那支），
+       它的 CONFIG 块里没有后来才加的键（antitrunc / button / edit……）。
+       原样拿来当配置用的话，界面上一读新键就抛异常——整页白掉。
+       （真实踩过：导入一份自带旧面板的预设，点「面板外观」直接
+        `Cannot read properties of undefined (reading 'longPress')`。）
+       mergeConfig 会把 DEFAULT_CONFIG 里每一个键都补齐，所以下面那些
+       `cfg.window` / `cfg.edit` 直接取字段是安全的。 */
+    let config;
+    if (PC) {
+      let raw = null;
+      try { raw = PC.extractConfig(content); } catch { /* 读不出来就用模板那份 */ }
+      config = PC.mergeConfig(PC.DEFAULT_CONFIG, raw || PANEL_DEMO?.config || {});
+    } else {
+      config = PANEL_DEMO?.config || {};
+    }
     const themes = (PC && PC.extractThemes(content)) || PANEL_DEMO?.themes || { day: {}, night: {} };
     const css = (PC && PC.extractCss(content)) || PANEL_DEMO?.css || '';
     const A = {
@@ -3953,6 +4052,131 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
           (out2.extensions.tavern_helper.scripts ?? []).some((x) => String(x.content).includes('FANO_PANEL_CONFIG_BEGIN')));
         ok('这时卡改口说"已装进这份预设"',
           document.getElementById('view').textContent.includes('已装进这份预设'));
+
+        /* ── 面板能力：预设里那份面板会不会"长按条目改正文" ──────────────
+           分寸（照 tool-guardrails 的三问）：
+             · 是我们这套面板、但缺能力标记 → 拦住（导出的就是他要的那份面板，
+               缺能力＝没达到目的），并给一键补救「换成新版面板」＋一条活路
+               「就带这个旧面板导出」（按 revision 记账，动一下会重新问）。
+             · 是**别人的**面板（没有我们的分组块）→ 只说一句，不拦、也不提供替换。 */
+        {
+          const capKey = PE.PANEL_CAP_MARKS.longPressEdit;
+          const now = PE.panelScriptViews(state.edit, preset().json, preset().model)[0];
+          ok('自检：面板脚本里带着"长按改正文"的能力标记', String(now.content).includes(capKey));
+          ok('自检：认得出这是我们这套面板（有分组块）', PE.panelSupport(now.content).ours === true,
+            JSON.stringify(PE.panelSupport(now.content)));
+          const titleBefore = PC.extractConfig(now.content).title;
+
+          /* 把它伪装成旧面板：抽掉能力标记（真实世界里旧版面板就长这样） */
+          PE.setScriptField(state.edit, preset().json, now.ref, 'content',
+            String(now.content).replace(capKey, 'FANO_PANEL_CAP_RETIRED'));
+          state.rev++;
+          state.view = 'export';
+          renderAll();
+          ok('旧版面板 → 导出被拦住，并点明原因',
+            runExportChecks().blocking.some((b) => b.kind === '面板是旧版：不能长按改正文'),
+            JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
+          const upBtn = [...document.getElementById('view').querySelectorAll('button')]
+            .find((b) => /换成新版面板/.test(b.textContent));
+          ok('卡里有「换成新版面板」这条一键补救', !!upBtn,
+            [...document.getElementById('view').querySelectorAll('button')].map((b) => b.textContent).join('｜'));
+          upBtn.click();
+          const up = PE.panelScriptViews(state.edit, preset().json, preset().model)[0];
+          ok('一键换新：能力标记回来了', String(up.content).includes(capKey));
+          ok('一键换新：你改过的外观带过去了（标题还是原来那个）',
+            PC.extractConfig(up.content).title === titleBefore,
+            `${JSON.stringify(titleBefore)} → ${JSON.stringify(PC.extractConfig(up.content).title)}`);
+          ok('一键换新：分组块也还在', String(up.content).includes('FANO_PANEL_GROUPS_BEGIN'));
+          ok('换新之后不再拦导出', runExportChecks().blocking.length === 0,
+            JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
+
+          /* 活路：就想带着这个旧面板导出 */
+          PE.setScriptField(state.edit, preset().json, up.ref, 'content',
+            String(up.content).replace(capKey, 'FANO_PANEL_CAP_RETIRED'));
+          state.rev++;
+          renderAll();
+          ok('又变回拦住（不能靠一次点掉就永远闭嘴）',
+            runExportChecks().blocking.some((b) => b.kind === '面板是旧版：不能长按改正文'));
+          const keepBtn = [...document.getElementById('view').querySelectorAll('button')]
+            .find((b) => /就带这个旧面板导出/.test(b.textContent));
+          ok('卡里有活路「就带这个旧面板导出」', !!keepBtn,
+            [...document.getElementById('view').querySelectorAll('button')].map((b) => b.textContent).join('｜'));
+          keepBtn.click();
+          ok('说了"就带旧的"→ 放行', runExportChecks().blocking.length === 0,
+            JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
+          ok('放行之后仍留一条提示（免得以为长按能用）',
+            runExportChecks().warnings.some((w) => w.kind === '带着旧版面板导出'));
+
+          /* 别人的面板：只提醒，不拦、不给替换按钮 */
+          const foreign = String(up.content).replace('FANO_PANEL_GROUPS_BEGIN', 'SOMEONE_ELSE_PANEL');
+          PE.setScriptField(state.edit, preset().json, up.ref, 'content', foreign);
+          state.rev++;
+          renderAll();
+          ok('不是我们的面板 → 不拦，只提醒',
+            runExportChecks().blocking.length === 0
+            && runExportChecks().warnings.some((w) => w.kind === '面板不是这套'),
+            JSON.stringify({ blocking: runExportChecks().blocking.map((b) => b.kind), warn: runExportChecks().warnings.map((w) => w.kind) }));
+          ok('别人的面板不给"换成新版面板"（不把人家的面板整段换掉）',
+            ![...document.getElementById('view').querySelectorAll('button')].some((b) => /换成新版面板/.test(b.textContent)));
+
+          /* 收尾：换回新版面板，别影响后面的自检 */
+          PE.setScriptField(state.edit, preset().json, up.ref, 'content', PE.upgradePanelContent(foreign, PANEL_DEMO.source));
+          state.rev++;
+          state.panelStaleIgnored = null;
+          renderAll();
+          ok('收尾：换回新版面板，导出不再被拦',
+            runExportChecks().blocking.length === 0,
+            JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
+        }
+
+        /* ── 老面板的 CONFIG 里没有新键 → 打开「面板外观」不能崩 ─────────────
+           真实报错（导入一份自带旧面板的预设之后）：
+             Uncaught TypeError: Cannot read properties of undefined (reading 'longPress')
+           那份面板的 CONFIG 块是旧版，没有 edit / antitrunc / button 这些后来才加的键，
+           而外观页直接读 cfg.edit.longPress。
+           修法：ensureAppearance() 读配置时一律 mergeConfig(DEFAULT_CONFIG, 读到的)，
+           界面就能安全地直接取字段。这条断言钉住它。 */
+        {
+          const cur = PE.panelScriptViews(state.edit, preset().json, preset().model)[0];
+          const oldCfg = { ...PC.extractConfig(cur.content) };
+          delete oldCfg.edit; delete oldCfg.antitrunc; delete oldCfg.button;
+          PE.setScriptField(state.edit, preset().json, cur.ref, 'content', PC.patchBlock(cur.content, 'CONFIG', oldCfg));
+          state.appearance = null;
+          state.rev++;
+          const nowCfg = PC.extractConfig(PE.panelScriptViews(state.edit, preset().json, preset().model)[0].content);
+          ok('自检：把面板 CONFIG 掏成"老面板"（没有 edit / antitrunc / button）',
+            !('edit' in nowCfg) && !('button' in nowCfg), JSON.stringify(Object.keys(nowCfg)));
+
+          state.view = 'appearance';
+          let threw = null;
+          try { renderAll(); } catch (e) { threw = e; }
+          ok('老面板打开「面板外观」不抛异常（这一条以前整页白掉）', !threw,
+            threw ? String(threw && threw.message) : '');
+          const av = document.getElementById('view');
+          ok('外观页照常渲染出「交互」那张卡', /长按改正文/.test(av.textContent) && /长按时长/.test(av.textContent));
+          const msField = [...av.querySelectorAll('label.numfield')].find((l) => /长按时长/.test(l.textContent));
+          ok('长按毫秒显示的是补齐后的默认值 500',
+            !!msField && msField.querySelector('input').value === '500',
+            msField ? msField.querySelector('input').value : '没找到这个字段');
+
+          /* 在外观页按一次「应用到面板脚本」→ 老面板的 CONFIG 被补齐（含 edit） */
+          const applyBtn = [...av.querySelectorAll('button')].find((b) => /应用到面板脚本|记下配置/.test(b.textContent));
+          ok('外观页有可点的应用按钮', !!applyBtn,
+            [...av.querySelectorAll('button')].map((b) => b.textContent).join('｜'));
+          applyBtn.click();
+          const fixed = PC.extractConfig(PE.panelScriptViews(state.edit, preset().json, preset().model)[0].content);
+          ok('应用一次之后老面板被补齐：edit.longPress 进来了',
+            !!fixed.edit && fixed.edit.longPress.enabled === true && fixed.edit.longPress.ms === 500,
+            JSON.stringify(fixed.edit));
+          ok('补齐时没把他原来的设置冲掉（球大小还是原来那个）',
+            fixed.ball.size === oldCfg.ball.size, `${oldCfg.ball.size} → ${fixed.ball.size}`);
+          ok('补齐后长按能力标记也在（脚本里那份是新代码）',
+            PE.panelSupport(PE.panelScriptViews(state.edit, preset().json, preset().model)[0].content).ours === true);
+
+          state.view = 'export';
+          state.rev++;
+          renderAll();
+        }
 
         if (!demoHasPanel) {
           /* 「这份预设就是不要面板」也要是条活路：不能把人堵死在导出前 */

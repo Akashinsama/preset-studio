@@ -17,6 +17,7 @@
 | `preview.html` | **离线预览**。双击就能在浏览器里看，用的是内存假数据和假的酒馆助手 API。 |
 | `preview-host.js` | 预览用的假数据（三份源预设的条目并集，393 条），自动生成。 |
 | `src/panel-core.js` | 面板源码。 |
+| `src/antitrunc.js` | **脚本层防截断**（从「芳乃预设 v2.8.1」那条脚本原样移植）。构建时被整体注入 `fano-panel.js` 的 `FANO_ANTITRUNC_BEGIN/END` 之间；开关是顶部「🛡 防截断」按钮，键 `fano-antitrunc-v1`。搬了哪些、改了哪几处见 `spec/防截断移植对照.md`。 |
 
 ## 装进酒馆
 
@@ -84,8 +85,8 @@
 ```bash
 node tools/build-groups.mjs     # spec/groups.json（子集定义）+ 覆盖率报告
 node tools/build-panel.mjs      # 注入 groups → fano-panel.js + preview-host.js
-node tools/test-panel.mjs       # 41 项逻辑断言（假 DOM：手风琴/互斥/写回次数）
-node tools/check-browser.mjs    # 16 项布局断言（真 Chrome：几何/遮挡/可点击）
+node tools/test-panel.mjs       # 155 项逻辑断言（假 DOM：手风琴/互斥/写回次数）
+node tools/check-browser.mjs    # 58 项布局断言（真 Chrome：几何/遮挡/可点击）
 ```
 
 两层测试分工不同，都要跑：

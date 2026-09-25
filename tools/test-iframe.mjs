@@ -9,16 +9,18 @@
  * 之前所有浏览器测试都是顶层文档，这条路径**从没被测过**。
  *
  * 覆盖三种情形：
- *   1. 两层嵌套 iframe → 必须挂到最顶层
+ *   1. 两层嵌套 iframe → 必须挂到最顶层（防截断拦截器同理：要装到**最外层**窗口的 fetch 上，
+ *      只往上看一层就会装到中间的 iframe 上，等于没装）
  *   2. 顶层文档的 body 还没就绪 → 不能退回内层，要等就绪后挂上顶层
  *   3. 父窗口跨域（parent.document 抛异常）→ 只能退回本地，并且必须标记出来让面板示警
+ *      （防截断这时**宁可不装**：装到不发请求的内层去，只会让人以为它在工作）
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { need } from './lib/fixtures.mjs';
 
 /* 夹具守卫：面板跑在假酒馆宿主里（preview-host.js，由成品预设生成）。 */
-need(path.join('panel', 'preview-host.js'), 'iframe / 时序场景测试（26 项）');
+need(path.join('panel', 'preview-host.js'), 'iframe / 时序场景测试（33 项）');
 
 const ROOT = process.cwd();
 const P = (...a) => path.join(ROOT, ...a);
@@ -130,6 +132,8 @@ function makeFrame(label, { bodyReady = true, ballRect = null } = {}) {
     innerHeight: 844,
     parent: null,
     addEventListener() {},
+    /* 脚本层防截断就装在这个 fetch 上；每个 frame 各给一个，才分得清"装到了哪一层" */
+    fetch: async () => new Response('', { status: 200 }),
   };
   return { win, doc, get body() { return body; }, finishParsing: () => doc.finishParsing() };
 }
@@ -167,6 +171,7 @@ console.log('[1] 两层嵌套 iframe → 必须挂到最顶层');
   inner.win.parent = mid.win;
   mid.win.parent = top.win;
   top.win.parent = top.win;          // 顶层：parent === self
+  const fetches = { top: top.win.fetch, mid: mid.win.fetch, inner: inner.win.fetch };
 
   loadIn(inner.win, HOST_SRC);
   loadIn(inner.win, PANEL_SRC);
@@ -180,6 +185,17 @@ console.log('[1] 两层嵌套 iframe → 必须挂到最顶层');
   const d = inner.win.__FANO_PANEL__ && inner.win.__FANO_PANEL__.diagnose();
   ok('diagnose 报出挂载在「外层文档」', d && d.host.mountedOn === '外层文档', d ? d.host.mountedOn : '无');
   ok('diagnose 报出嵌套深度 2', d && d.host.depth === 2, d ? String(d.host.depth) : '无');
+
+  /* 脚本层防截断：请求是**最外层**窗口发的，所以拦截器必须装到那一层的 fetch 上。
+     只往上看一层（window.parent ?? window）就会装到 mid 上，等于没装。 */
+  const at = top.win.__FANO_ANTITRUNC__;
+  ok('防截断拦截器装到了最外层窗口的 fetch 上（不是 iframe 自己那层）',
+    !!at && at.installed() === true && top.win.fetch !== fetches.top,
+    at ? JSON.stringify({ installed: at.installed(), 认的宿主是最外层: at.hostWindow() === top.win }) : '没有 __FANO_ANTITRUNC__');
+  ok('中间那层没被装（说明确实爬到了最外层，不是只爬一层）', mid.win.fetch === fetches.mid);
+  ok('内层（脚本所在那层）自己的 fetch 也没被动过', inner.win.fetch === fetches.inner);
+  ok('控制台 API 挂在最外层窗口上，开关默认开着',
+    typeof at?.isEnabled === 'function' && at.isEnabled() === true);
 }
 
 /* ── 情形 2：顶层 body 还没就绪 ─────────────────────────────────── */
@@ -210,6 +226,7 @@ console.log('\n[3] 父窗口跨域（parent.document 抛异常）→ 退回本�
   inner.win.parent = {
     get document() { throw new Error('Blocked a frame with origin "null" from accessing a cross-origin frame.'); },
   };
+  const innerFetch0 = inner.win.fetch;
 
   loadIn(inner.win, HOST_SRC);
   loadIn(inner.win, PANEL_SRC);
@@ -221,6 +238,15 @@ console.log('\n[3] 父窗口跨域（parent.document 抛异常）→ 退回本�
   ok('diagnose 标记了跨域回退', d.host.crossOriginFallback === true, String(d.host.crossOriginFallback));
   const warn = rootLocal && String(rootLocal.textContent || '').includes('跨域');
   ok('面板顶部显示了跨域警告', warn || !!(rootLocal && rootLocal.querySelector('.fp-warnbox')));
+
+  /* 防截断：拿不到宿主窗口时**宁可不装**，也不能装到 iframe 自己那层（那层不发请求），
+     更不能因此把开关悄悄改掉——开关照旧是"开"，只是 installed=false，面板会提示用户。 */
+  const at3 = globalThis.__FANO_ANTITRUNC__;
+  ok('跨域时：没装（installed=false），但开关没被动过（还是开）',
+    !!at3 && at3.installed() === false && at3.isEnabled() === true,
+    at3 ? JSON.stringify({ installed: at3.installed(), enabled: at3.isEnabled() }) : '没有 __FANO_ANTITRUNC__');
+  ok('跨域时也没往 iframe 自己的 fetch 上乱挂', inner.win.fetch === innerFetch0);
+  ok('认不出宿主窗口（hostWindow() 给 null）', at3 && at3.hostWindow() === null, String(at3 && at3.hostWindow()));
 }
 
 /* ── 情形 4：版本号与 reset() ───────────────────────────────────── */
@@ -233,7 +259,9 @@ console.log('\n[4] 版本号与自救入口');
   loadIn(inner.win, PANEL_SRC);
   await settle(8);
   const api = inner.win.__FANO_PANEL__;
-  ok('版本号已更新到 0.4.x', /^0\.4\./.test(api.version), api.version);
+  ok('版本号已更新到 0.5.x', /^0\.5\./.test(api.version), api.version);
+  ok('暴露了能力清单（长按改正文；编辑器导出前检查认它）',
+    typeof api.caps === 'function' && api.caps().longPressEdit === true, JSON.stringify(api.caps && api.caps()));
   ok('暴露了外观配置（给生成器的「面板外观」对照用）',
     typeof api.config === 'function' && !!api.config().effective?.layout, JSON.stringify(Object.keys(api.config?.() ?? {})));
   ok('有 reset()（卡住时的自救入口）', typeof api.reset === 'function');
