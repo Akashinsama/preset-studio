@@ -1,0 +1,27 @@
+{
+  "$comment": "统一思维链折叠链。按数组顺序套用：先处理多块（Kemini 形态），剩下的单块走 Izumi 形态。",
+  "displayText": "芳乃祈福中",
+  "rule": "1 块 → Izumi 形态；≥2 块 → Kemini 形态",
+  "items": [
+    {
+      "id": "fano-think-multi-head",
+      "name": "芳乃思维链 · 多块（Kemini 形态）",
+      "findRegex": "/<(?:think|thinking)>([\\s\\S]*?)<\\/(?:think|thinking)>(?=[\\s\\S]*?<(?:think|thinking)>)/gi"
+    },
+    {
+      "id": "fano-think-multi-tail",
+      "name": "芳乃思维链 · 多块的末块（Kemini 形态）",
+      "findRegex": "/(<details class=\"fano_thinking\"[\\s\\S]*?<\\/details>[\\s\\S]*?)<(?:think|thinking)>([\\s\\S]*?)<\\/(?:think|thinking)>/gi"
+    },
+    {
+      "id": "fano-think-single",
+      "name": "芳乃思维链 · 单块（Izumi 形态）",
+      "findRegex": "/<(?:think|thinking)>([\\s\\S]*?)<\\/(?:think|thinking)>/gi"
+    },
+    {
+      "id": "fano-think-konatan",
+      "name": "芳乃思维链 · Izumi 标签（Izumi 形态）",
+      "findRegex": "/([\\s\\S]*)<\\/konatan_planning~>/g"
+    }
+  ]
+}

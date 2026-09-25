@@ -1,0 +1,95 @@
+源：Izumi_0914.json　条目 226 条　归类 224 条
+
+子集 id             模式      条数    标签
+----------------------------------------------------------------
+core              fixed   17    核心（固定，不上面板）
+style_main        single  17    主文风（选一）
+style_third       multi   11    第三人称追加文风
+style_first       multi   4     第一人称追加文风
+style_nsfw        multi   11    可写 NSFW 文风
+style_lib         multi   8     备选文风库（默认不在列表）
+person            single  4     人称（选一）
+dialogue_amt      single  4     对白量（选一）
+difficulty        single  3     难度（选一）
+cot_lang          single  7     思维链语言（选一）
+cot               single  13    思维链 / 思考方式（选一）
+mvu               single  2     MVU 变量更新（选一）
+length            single  2     字数（选一）
+summary           single  4     摘要（选一）
+out_mode          single  4     输出模式（四选一）
+format            single  5     格式示例（选一）
+nsfw              multi   8     NSFW 指导与加强
+guard             multi   32    叙事与防护开关
+adapter           multi   3     适配开关
+ui                multi   4     前端与美化
+custom            editable7     自定义内容（自己填）
+fano              multi   3     芳乃主体层（本预设新增）
+anchors           fixed   12    锚点（固定开启，不上面板）
+misc              multi   18    其他实验项
+
+子集 25 个（含 1 个破甲分流组、3 个隐藏标记组）
+破甲分流组 jailbreak（bundle + tunables）：
+  · Gemini（Kemini）骨架 6 条 / 全池 10 条
+      └ 档位「防截断档位」[single 可全关] 2 条：📐牢大防截断、💿普通防截断
+      └ 档位「NSFW 加强」[multi] 1 条：💗NSFW
+      └ 档位「雪融雪降填充文本」[text] 1 条：💠雪融雪降！（build渠道等过不去外审开）
+  · DeepSeek / GLM（梦鲸思客V4）骨架 1 条 / 全池 8 条
+      └ 档位「渠道 / 思考标签」[single 必选一] 3 条：Deepseek官方、硅基流动或其他、KimiK3思考
+      └ 档位「模型禁词」[multi] 3 条：DeepSeek禁词、Glm/Gemini禁词、自定义禁词
+      └ 档位「V4Pro 神秘小指令」[multi] 1 条：V4Pro神秘小指令
+  · 其他模型（Izumi）骨架 4 条 / 全池 14 条
+      └ 档位「防截断档位」[multi] 2 条：kemini防截断(强)、超长防截断（k,mygo）
+      └ 档位「破甲强度」[multi] 4 条：破甲1-Claude、😤破甲1（基米别开！！！）、😤破甲2（基米别开！！！）、不用开
+      └ 档位「尾部 / 预填充」[multi] 4 条：非预填充尾部、基米flash尾部、基米flash尾部1、卡思维链（K）
+  · 手动（—）骨架 0 条 / 全池 0 条
+单选子集（下拉框）：style_main, person, dialogue_amt, difficulty, cot_lang, cot, mvu, length, summary, out_mode, format
+多选子集（开关排）：style_third, style_first, style_nsfw, style_lib, nsfw, guard, adapter, ui, fano, misc
+固定子集：core, anchors
+可编辑子集：custom
+
+需要用户自己敲内容的条目（7 条，面板里给输入框）：
+  · 🔴指南（可改）　［固定开启，只改内容］
+      创作规则的聚合条目。作者原话：不需要写复杂功能，想要什么效果直接塞到这里就能做到——投一句就见效。
+  · 🤖自定义（字数）　［可开关 + 改内容］
+      在「字数」模块里选中「自定义（字数）」这一档时才生效。填你要的字数要求。
+  · 思维链-自定义　［可开关 + 改内容］
+      在「思维链」模块里选中「思维链-自定义」这一档时才生效。填你想让模型怎么思考。
+  · 🧐用户画像（点进去看）　［可开关 + 改内容］
+      把测出来的用户画像粘进来，然后打开这一条。作者用法：开一张空卡输入「开始测试」，十几轮问答后让 AI 生成画像，重复测三次再总结。
+  · ☀️自定义缝合处　［固定开启，只改内容］
+      自定义缝合内容，会插在破甲区后面。
+  · 自定义禁词　［可开关 + 改内容］
+      按条目里的格式加你想禁的词，可以和模型禁词并存。
+  · 🌸芳乃 · 称呼　［可开关 + 改内容］
+      改这里决定芳乃怎么称呼你。默认「你」。
+
+来源提示词命名：一律不改动（泉此方 / 小此 / Konata 原文保留）；芳乃只由新增主体层承担。
+
+注入锚点 12 条（属 fixed，面板不给开关，组装时强制开启）：
+  · 💠CLEAR
+  · 💠continue
+  · 💠↑Char
+  · 💠↓Char
+  · 💠Char Description
+  · 💠Char Personality
+  · 💠Persona Description
+  · 💠Scenario
+  · 💠<DATA>
+  · 💠</DATA>
+  · 💠<HISTORY>
+  · 💠</HISTORY>
+
+思维链标签互斥组（面板保证同组共存、跨组互斥）：
+  · kemini：2 条　Kemini（<thinking>，ICOT 为三段交错）
+  · izumi：15 条　Izumi（konatan_planning~，单块）
+
+本预设新增条目 5 条（不计入幽灵校验）：
+  · 芳乃主体层：🌸芳乃 · 助手主体
+  · 芳乃主体层：🌸芳乃 · 称呼
+  · 芳乃主体层：🌸芳乃 · 祈福口癖
+  · MVU 骨架：🔧MVU · 变量更新（普通）
+  · MVU 骨架：🔧MVU · 变量更新（Zod / JSONPatch）
+
+不搬运的旧 MVU 变量条目 2 条（已被新模块取代）：✅MVU Zod兼容、✅MVU兼容（用再开）
+✓ 幽灵名字校验：通过（所有声明的名字都能在三份源预设里找到）
+同名重复条目（源预设里就重复，按一条处理）：markers/——破甲加强区—— | jb_izumi/基米flash尾部

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>浏览器回归测试</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d1017; }
+  #verdict { position: fixed; left: 0; right: 0; bottom: 0; z-index: 99999;
+    background: #000e; color: #7ee2a8; padding: 10px 12px; margin: 0; max-height: 46vh; overflow: auto;
+    font: 12.5px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+  #verdict.bad { color: #ff9c9c; }
+</style>
+</head>
+<body>
+<pre id="verdict">running…</pre>
+
+<script>
+  window.__ERRORS__ = [];
+  window.addEventListener('error', (e) => window.__ERRORS__.push('error: ' + e.message + ' @' + e.lineno + ':' + e.colno));
+  window.addEventListener('unhandledrejection', (e) => window.__ERRORS__.push('rejection: ' + (e.reason && e.reason.message || e.reason)));
+</script>
+
+<script src="preview-host.js"></script>
+<script src="fano-panel.js"></script>
+
+<script>
+(async function () {
+  const L = [];
+  const fails = [];
+  let pass = 0;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const ok = (name, cond, detail) => {
+    if (cond) { pass++; L.push('  PASS  ' + name); }
+    else { fails.push(name); L.push('  FAIL  ' + name + (detail ? '   → ' + detail : '')); }
+  };
+  const R = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; };
+  const cls = (e) => (e ? (e.className || e.tagName) : 'null');
+
+  await sleep(600);
+
+  const root = document.querySelector('#fano-preset-panel-v1-root');
+  const qa = (s) => Array.from((root || document).querySelectorAll(s));
+  const mods = () => qa('.fp-mod');
+  const heads = () => qa('.fp-modhead');
+
+  L.push('== 浏览器布局回归 ==');
+  const declared = (window.__FANO_PANEL__ && window.__FANO_PANEL__.groups) ? window.__FANO_PANEL__.groups.length : -1;
+  ok('面板已渲染', !!root && mods().length === declared, `模块 ${mods().length} / 声明 ${declared}`);
+  if (!root) return finish();
+
+  const win = root.querySelector('.fp-win');
+  const body = root.querySelector('.fp-body');
+
+  /* 1. 窗口必须真的定位（否则 left/top/right 全部无效，窗口卡在左上角、拖不动） */
+  const wp = win ? getComputedStyle(win).position : '-';
+  ok('.fp-win 是定位元素', wp === 'absolute' || wp === 'fixed', 'position=' + wp);
+  const wr = R(win);
+  ok('窗口在视口内', wr.l >= 0 && wr.t >= 0 && wr.l + wr.w <= innerWidth + 1 && wr.t + 40 <= innerHeight,
+    `rect=${Math.round(wr.l)},${Math.round(wr.t)} ${Math.round(wr.w)}x${Math.round(wr.h)} 视口=${innerWidth}x${innerHeight}`);
+
+  /* 2. 模块不能被 flex 压扁（这就是「点名字展不开」的真凶） */
+  const tiny = mods().filter((m) => R(m).h < 28);
+  ok('每个模块高度 ≥28px（没被 flex 压扁）', tiny.length === 0,
+    tiny.length ? tiny.slice(0, 3).map((m) => m.dataset.group + '=' + Math.round(R(m).h) + 'px').join(', ') : '');
+  const thinHead = heads().filter((h) => R(h).h < 22);
+  ok('每个标题行高度 ≥22px', thinHead.length === 0,
+    thinHead.length ? thinHead.slice(0, 3).map((h) => Math.round(R(h).h) + 'px').join(', ') : '');
+
+  /* 3. 可见的标题行必须真的能被点到（命中的元素要在标题内） */
+  if (body) {
+    const br = R(body);
+    const visible = heads().filter((h) => { const r = R(h); return r.t >= br.t && r.t + r.h <= br.t + br.h && r.h > 0; });
+    const blocked = [];
+    for (const h of visible) {
+      const r = R(h);
+      for (const x of [r.l + 6, r.l + r.w * 0.35, r.l + r.w * 0.7]) {
+        const top = document.elementFromPoint(x, r.t + r.h / 2);
+        if (!top || (top !== h && !h.contains(top))) { blocked.push(h.closest('.fp-mod').dataset.group + '→' + cls(top)); break; }
+      }
+    }
+    ok(`可见的 ${visible.length} 个标题行全部可点击（无遮挡）`, blocked.length === 0, blocked.slice(0, 3).join(' | '));
+  }
+
+  /* 4. 面板整体可滚动 */
+  const scrollable = body && body.scrollHeight > body.clientHeight + 4;
+  ok('面板内容可滚动', scrollable, body ? `scrollH=${body.scrollHeight} clientH=${body.clientHeight}` : 'no body');
+
+  /* 5. 点「名字」能展开 */
+  const byGroup = (id) => document.querySelector('.fp-mod[data-group="' + id + '"]');
+  const jb = heads().find((h) => h.closest('.fp-mod').dataset.group === 'jailbreak');
+  ok('找到破甲模块标题', !!jb);
+  if (jb) {
+    ok('默认是折叠的', byGroup('jailbreak').dataset.open === '0');
+    jb.querySelector('.fp-modlabel').click();
+    await sleep(200);
+    const m = byGroup('jailbreak');
+    ok('点名字后展开', m && m.dataset.open === '1');
+    ok('展开后出现下拉框', !!document.querySelector('.fp-mod[data-group="jailbreak"] select'));
+    const h2 = document.querySelector('.fp-mod[data-group="jailbreak"] .fp-modhead');
+    if (h2) {
+      /* 展开后再量一次几何：展开态也要点得到 */
+      const r = R(h2);
+      const top = document.elementFromPoint(r.l + r.w / 2, r.t + r.h / 2);
+      ok('展开后标题仍可点击', top && (top === h2 || h2.contains(top)), cls(top));
+      h2.click();
+      await sleep(200);
+      ok('再点一次折回', byGroup('jailbreak').dataset.open === '0');
+    }
+  }
+
+  /* 6. 滚到底部的模块也能展开（覆盖全列表） */
+  if (body) { body.scrollTop = body.scrollHeight; await sleep(120); }
+  const last = mods()[mods().length - 1];
+  if (last) {
+    const lr = R(last);
+    ok('滚到底后最后一个模块可点击', lr.h >= 28, 'h=' + Math.round(lr.h) + ' group=' + last.dataset.group);
+    const lh = last.querySelector('.fp-modhead');
+    lh.querySelector('.fp-modlabel').click();
+    await sleep(200);
+    ok('最后一个模块也能展开', document.querySelector('.fp-mod[data-group="' + last.dataset.group + '"]').dataset.open === '1');
+  }
+
+  /* 7. 破甲：选一套骨架后要列出这套的档位，包含正文编辑框 */
+  const jbMod = document.querySelector('.fp-mod[data-group="jailbreak"]');
+  if (jbMod) {
+    if (jbMod.dataset.open !== '1') { jbMod.querySelector('.fp-modhead').click(); await sleep(220); }
+    const bundleSel = document.querySelector('.fp-mod[data-group="jailbreak"] select');
+    ok('有骨架下拉框', !!bundleSel);
+    if (bundleSel) {
+      bundleSel.value = 'gemini';
+      bundleSel.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(400);
+    }
+    const tun = document.querySelectorAll('.fp-mod[data-group="jailbreak"] .fp-tunable');
+    const jbDef = ((window.__FANO_PANEL__ && window.__FANO_PANEL__.groups) || []).find((g) => g.id === 'jailbreak');
+    const gemDef = jbDef && jbDef.options.find((o) => o.id === 'gemini');
+    const expectTun = gemDef ? gemDef.tunables.length : 3;
+    ok(`选 Gemini 后列出 ${expectTun} 个档位`, tun.length === expectTun, '档位数=' + tun.length);
+    const labels = Array.from(document.querySelectorAll('.fp-mod[data-group="jailbreak"] .fp-tunlabel')).map((n) => n.textContent);
+    ok('档位都有名字', labels.length === tun.length && labels.every((l) => l && l.length > 1), labels.join('、'));
+    ok('正文档位渲染出编辑框', !!document.querySelector('.fp-mod[data-group="jailbreak"] textarea'));
+    const tsel = document.querySelector('.fp-mod[data-group="jailbreak"] .fp-tunable select');
+    ok('档位下拉框可点', !!tsel && R(tsel).h > 16, tsel ? 'h=' + Math.round(R(tsel).h) : 'none');
+  }
+
+  /* 8. 改档位后不能跳回顶部（真浏览器里才测得准；注意每次渲染都会换掉 DOM 节点，要重新取） */
+  {
+    const b2 = root.querySelector('.fp-body');
+    if (b2) {
+      b2.scrollTop = 200;
+      await sleep(150);
+      const at = b2.scrollTop;
+      const swInJb = document.querySelector('.fp-mod[data-group="jailbreak"] .fp-tunable .fp-sw');
+      if (swInJb && at > 20) {
+        swInJb.click();
+        await sleep(400);
+        const b3 = root.querySelector('.fp-body');   // 重渲染后的新节点
+        ok('改档位后滚动位置保持', Math.abs(b3.scrollTop - at) < 24,
+          `点击前 ${at} → 点击后 ${b3.scrollTop}`);
+      } else {
+        ok('改档位后滚动位置保持', false, `场景不成立：at=${at} sw=${!!swInJb}`);
+      }
+      const b4 = root.querySelector('.fp-body');
+      if (b4) b4.scrollTop = 0;
+    }
+  }
+
+  /* 9. 来源提示词命名：必须原样保留，不得被改成芳乃名 */
+  const om = document.querySelector('.fp-mod[data-group="out_mode"]');
+  if (om && om.dataset.open !== '1') { om.querySelector('.fp-modhead').click(); await sleep(240); }
+  const fm = document.querySelector('.fp-mod[data-group="fano"]');
+  if (fm && fm.dataset.open !== '1') { fm.querySelector('.fp-modhead').click(); await sleep(240); }
+  const shown = Array.from(document.querySelectorAll(
+    '.fp-root .fp-modlabel, .fp-root .fp-modstate, .fp-root .fp-sw span, .fp-root .fp-tunlabel, .fp-root option'))
+    .map((n) => n.textContent).join(' ');
+  ok('来源条目名原样保留（「小此」还在）', /小此/.test(shown),
+    (shown.match(/小此/g) || []).length + ' 处');
+  ok('来源条目没有被改成芳乃名',
+    !/🔵芳乃对话|🎆中文-芳乃爽写|🎆日语-芳乃爽写|✔️芳乃漫改|✔️芳乃音声Plus|😭防芳乃乱入|🌟中文-芳乃说故事|🎆芳乃散文/.test(shown));
+  const fanoShown = (shown.match(/🌸芳乃/g) || []).length;
+  ok('芳乃只出现在新增主体层（三条都渲染出来）', fanoShown === 3, fanoShown + ' 处');
+  ok('有芳乃主体层模块', !!document.querySelector('.fp-mod[data-group="fano"]'));
+
+  /* 9. 自定义内容：输入框必须真的看得见、点得到、保存生效 */
+  ok('有「自定义内容」模块', !!document.querySelector('.fp-mod[data-group="custom"]'));
+  if (document.querySelector('.fp-mod[data-group="custom"]')) {
+    /* 先把破甲折起来，减少要在视口里塞的内容 */
+    const jbNow = document.querySelector('.fp-mod[data-group="jailbreak"]');
+    if (jbNow && jbNow.dataset.open === '1') { jbNow.querySelector('.fp-modhead').click(); await sleep(220); }
+    const cm = document.querySelector('.fp-mod[data-group="custom"]');
+    if (cm.dataset.open !== '1') { cm.querySelector('.fp-modhead').click(); await sleep(250); }
+
+    /* 注意：每次 render 都会换掉整棵 DOM。量之前必须重新取节点。 */
+    const b5 = root.querySelector('.fp-body');
+    if (b5) {
+      const sc = cm.getBoundingClientRect().top - b5.getBoundingClientRect().top + b5.scrollTop;
+      b5.scrollTop = Math.max(0, sc - 6);
+      await sleep(160);
+    }
+    const areas = Array.from(document.querySelectorAll('.fp-mod[data-group="custom"] textarea'));
+    ok('每条自定义都有输入框', areas.length >= 5, 'textarea 数=' + areas.length);
+    const tiny = areas.filter((t) => R(t).h < 60);
+    ok('输入框高度正常（不是被压扁的）', tiny.length === 0,
+      tiny.length ? tiny.length + ' 个过矮：' + tiny.slice(0, 2).map((t) => Math.round(R(t).h)).join(',') : '');
+
+    const vis = areas.find((t) => { const r = R(t); return r.t > 0 && r.t < innerHeight - 140 && r.h > 60; });
+    if (vis) {
+      const r = R(vis);
+      const hit = document.elementFromPoint(r.l + 20, r.t + 14);
+      ok('输入框可点击（无遮挡）', hit === vis || vis.contains(hit), hit ? (hit.className || hit.tagName) : 'null');
+      const guide = document.querySelectorAll('.fp-mod[data-group="custom"] .fp-tunable')[0];
+      const gArea = vis || (guide && guide.querySelector('textarea'));
+      const saveBtn = guide && Array.from(guide.querySelectorAll('.fp-mini')).find((x) => x.textContent === '保存');
+      if (gArea && saveBtn) {
+        const prevLen = (window.__MOCK_PRESET__.prompts.find((p) => p.name === '🔴指南（可改）').content || '').length;
+        gArea.value = '浏览器测试写入的规则。'.repeat(12);
+        saveBtn.click();
+        await sleep(400);
+        const after = window.__MOCK_PRESET__.prompts.find((p) => p.name === '🔴指南（可改）');
+        ok('保存真的改写了预设正文', (after.content || '').includes('浏览器测试写入的规则'),
+          `原 ${prevLen} 字 → 现 ${(after.content || '').length} 字`);
+      } else {
+        ok('保存真的改写了预设正文', false, 'gArea=' + !!gArea + ' saveBtn=' + !!saveBtn);
+      }
+    } else {
+      ok('输入框可点击（无遮挡）', false, '没有可见的输入框；rects=' +
+        areas.slice(0, 3).map((t) => { const q = R(t); return `${Math.round(q.t)},${Math.round(q.h)}`; }).join(' | '));
+    }
+  }
+
+  /* 10. 思维链：标签互斥 + 块数决定形态 */
+  {
+    const cotMod = document.querySelector('.fp-mod[data-group="cot"]');
+    ok('有思维链模块', !!cotMod);
+    if (cotMod) {
+      if (cotMod.dataset.open !== '1') { cotMod.querySelector('.fp-modhead').click(); await sleep(260); }
+      const cotSel = document.querySelector('.fp-mod[data-group="cot"] select');
+      const vals = cotSel ? Array.from(cotSel.options).map((o) => o.value) : [];
+      ok('思维链下拉框含 ICOT 与 COT', vals.includes('📽️ICOT（三段）') && vals.includes('📽️COT（格式友好型）'),
+        vals.slice(0, 4).join('、'));
+      /* 初始不该两套标签同时开 */
+      const tags = (window.__FANO_PANEL__ && window.__FANO_PANEL__.thinkingTags) || [];
+      const onSet = () => new Set(window.__MOCK_PRESET__.prompts.filter((p) => p.enabled !== false).map((p) => p.name));
+      const fams = () => tags.filter((t) => t.members.some((m) => onSet().has(m))).map((t) => t.id);
+      ok('初始只开一套思维链标签', fams().length <= 1, fams().join('、') || '（都没开）');
+      if (cotSel && vals.includes('思维链-注重流畅性')) {
+        cotSel.value = '思维链-注重流畅性';
+        cotSel.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(400);
+        const f2 = fams();
+        ok('选 Izumi 思维链后只剩 izumi 一套', f2.length === 1 && f2[0] === 'izumi', f2.join('、'));
+        ok('Kemini 的 ICOT/COT 已被关掉',
+          !onSet().has('📽️ICOT（三段）') && !onSet().has('📽️COT（格式友好型）'));
+        const sel2 = document.querySelector('.fp-mod[data-group="cot"] select');
+        if (sel2) {
+          sel2.value = '📽️ICOT（三段）';
+          sel2.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(400);
+          const f3 = fams();
+          ok('切回 ICOT 后只剩 kemini 一套', f3.length === 1 && f3[0] === 'kemini', f3.join('、'));
+        }
+      }
+    }
+  }
+
+  /* 11. MVU 一键开关 */
+  {
+    const mvuMod = document.querySelector('.fp-mod[data-group="mvu"]');
+    ok('有 MVU 变量更新模块', !!mvuMod);
+    if (mvuMod) {
+      if (mvuMod.dataset.open !== '1') { mvuMod.querySelector('.fp-modhead').click(); await sleep(260); }
+      const sel = document.querySelector('.fp-mod[data-group="mvu"] select');
+      const vals = sel ? Array.from(sel.options).map((o) => o.value) : [];
+      ok('MVU 下拉框有 3 项（不使用 / 普通 / Zod）', vals.length === 3 && vals[0] === '', vals.length + ' 项');
+      const onSet = () => new Set(window.__MOCK_PRESET__.prompts.filter((p) => p.enabled !== false).map((p) => p.name));
+      ok('MVU 默认关闭', !vals.some((v) => v && onSet().has(v)));
+      const zodVal = vals.find((v) => v && v.includes('Zod'));
+      if (sel && zodVal) {
+        sel.value = zodVal;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(400);
+        const on = onSet();
+        const onMvu = vals.filter((v) => v && on.has(v));
+        ok('选 Zod 后只开这一条', onMvu.length === 1 && onMvu[0] === zodVal, onMvu.join('、'));
+        ok('旧条目仍不在预设里', !onSet().has('✅MVU Zod兼容'));
+      }
+    }
+  }
+
+  /* 12. 悬浮球：必须在视口内、够大、点得到（手机上最容易出问题的地方） */
+  {
+    const ball = document.querySelector('.fp-root .fp-launch');
+    ok('悬浮球存在', !!ball);
+    if (ball) {
+      const r = R(ball);
+      ok('悬浮球在视口内（没被推到屏外）',
+        r.l >= 0 && r.t >= 0 && r.l + r.w <= innerWidth + 1 && r.t + r.h <= innerHeight + 1,
+        `rect=${Math.round(r.l)},${Math.round(r.t)} ${Math.round(r.w)}×${Math.round(r.h)}　视口=${innerWidth}×${innerHeight}`);
+      ok('悬浮球够大，手指点得中（≥44px）', r.w >= 44 && r.h >= 44, `${Math.round(r.w)}×${Math.round(r.h)}`);
+      /* 定位方式必须是"自己 fixed + JS 写坐标"，不能依赖根容器被拉伸成视口大小
+         （实测过：靠 inset:0 + bottom 的写法在手机上会把球算到视口外 12,-158） */
+      const cs = getComputedStyle(ball);
+      ok('悬浮球是 fixed 定位', cs.position === 'fixed', cs.position);
+      ok('悬浮球的坐标由 JS 写死在行内样式', !!ball.style.left && !!ball.style.top,
+        `left=${ball.style.left} top=${ball.style.top}`);
+      const hit = document.elementFromPoint(r.l + r.w / 2, r.t + r.h / 2);
+      ok('悬浮球没有被别的东西盖住', hit === ball || ball.contains(hit),
+        hit ? (hit.className || hit.tagName) : 'null');
+    }
+    /* 面板自己报的挂载情况（手机排查用） */
+    const d = window.__FANO_PANEL__ && window.__FANO_PANEL__.diagnose && window.__FANO_PANEL__.diagnose();
+    ok('diagnose() 可用', !!d);
+    if (d) {
+      ok('diagnose 报了挂载目标', typeof d.host.mountedOn === 'string', d.host.mountedOn);
+      ok('diagnose 报的悬浮球状态与实际一致', d.launchInDom === !!ball, `诊断 ${d.launchInDom} / 实际 ${!!ball}`);
+    }
+  }
+
+  /* ── 外观配置：分层与壁纸（真浏览器才看得出堆叠对不对）─────────────
+     这一段测的是**样式表**：面板已经把 .fp-bglayer / .fp-wall / .fp-walldim
+     三层写进注入样式里了，这里按真实结构摆出这三层、把变量调开，
+     然后验证「壁纸确实在底下、文字仍然在最上面、点得到」。
+     （配置的解析/夹取由 tools/test-panelconfig.mjs 在假 DOM 里逐个字段比对。） */
+  {
+    const root = document.getElementById('fano-preset-panel-v1-root');
+    const win = document.getElementById('fano-preset-panel-v1-win');
+    if (root && win) {
+      const bg = win.querySelector('.fp-bglayer');
+      ok('窗口里有底色层 .fp-bglayer', !!bg);
+      ok('底色层铺满窗口', (() => {
+        if (!bg) return false;
+        const a = bg.getBoundingClientRect();
+        const b = win.getBoundingClientRect();
+        /* 容差 3px：inset:0 是相对**内边距盒**算的，而窗口有 1px 描边（左右上下各 1px） */
+        return Math.abs(a.width - b.width) <= 3 && Math.abs(a.height - b.height) <= 3;
+      })(), bg ? `层 ${Math.round(bg.getBoundingClientRect().width)}×${Math.round(bg.getBoundingClientRect().height)} / 窗 ${Math.round(win.getBoundingClientRect().width)}×${Math.round(win.getBoundingClientRect().height)}` : '没有底色层');
+
+      /* 摆一层壁纸（用 1×1 的透明 PNG，只为验证样式与堆叠，不看画质） */
+      const tiny = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wD/AL0AAAAASUVORK5CYII=';
+      const wall = document.createElement('div');
+      wall.className = 'fp-wall';
+      wall.dataset.fit = 'cover';
+      wall.style.backgroundImage = `url("${tiny}")`;
+      const dim = document.createElement('div');
+      dim.className = 'fp-walldim';
+      win.insertBefore(dim, win.firstChild);
+      win.insertBefore(wall, dim);
+      root.style.setProperty('--fp-wall-opacity', '0.5');
+      root.style.setProperty('--fp-wall-blur', '0px');
+      root.style.setProperty('--fp-wall-dim', '0.2');
+
+      const wr = wall.getBoundingClientRect();
+      ok('壁纸层也是铺满窗口的', wr.width > 20 && wr.height > 20, `${Math.round(wr.width)}×${Math.round(wr.height)}`);
+      ok('壁纸层不拦鼠标（pointer-events:none）', getComputedStyle(wall).pointerEvents === 'none',
+        getComputedStyle(wall).pointerEvents);
+
+      /* 关键一条：拿真实命中测试证明"文字在壁纸之上" */
+      const head = win.querySelector('.fp-head');
+      if (head) {
+        const hr = head.getBoundingClientRect();
+        const hit = document.elementFromPoint(hr.left + 8, hr.top + hr.height / 2);
+        ok('壁纸之上仍然点得到标题（没被盖住）',
+          !!hit && (head === hit || head.contains(hit)),
+          hit ? (hit.className || hit.tagName) : 'null');
+        const zHead = Number(getComputedStyle(head).zIndex) || 0;
+        const zWall = Number(getComputedStyle(wall).zIndex) || 0;
+        ok('标题所在层的 z-index 高于壁纸层', zHead > zWall, `标题 ${zHead} / 壁纸 ${zWall}`);
+      }
+      /* 关掉壁纸的不透明度后，壁纸层应该看不见（= 没配壁纸时不会白铺一层） */
+      root.style.setProperty('--fp-wall-opacity', '0');
+      ok('把壁纸不透明度归零后壁纸不可见', Number(getComputedStyle(wall).opacity) === 0,
+        getComputedStyle(wall).opacity);
+      wall.remove(); dim.remove();
+    } else {
+      ok('找得到窗口用来测分层', false, '没有 .fp-win');
+    }
+  }
+
+  ok('运行期间没有 JS 错误', window.__ERRORS__.length === 0, window.__ERRORS__.slice(0, 3).join(' | '));
+
+  finish();
+
+  function finish() {
+    L.push('');
+    L.push(`通过 ${pass} 项，失败 ${fails.length} 项`);
+    if (fails.length) L.push('失败项：' + fails.join(' ／ '));
+    const box = document.getElementById('verdict');
+    box.textContent = L.join('\n');
+    if (fails.length) box.className = 'bad';
+  }
+})();
+</script>
+</body>
+</html>

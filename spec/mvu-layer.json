@@ -1,0 +1,28 @@
+{
+  "$comment": "MVU 一键开关用的两个新增条目（本预设自己写的，来源预设的提示词一字未改）。为什么不用 Izumi 原来的做法：它把骨架塞进 {{setvar::mvu::}} 变量，再由 3 个「格式示例」里的 {{getvar::mvu}} 展开——生产者与消费者分散在两个模块，只开一半就等于没开（用户实测：模型完全不更新变量）。这里改成把骨架直接写在条目里，开关只需点亮一条，不再依赖别的模块。",
+  "$removed": "同时不再搬运 Izumi 的 ✅MVU Zod兼容 与 ✅MVU兼容（用再开）——它们的机制被这两条取代，留着会形成第二套竞争机制（正是之前踩过的坑）。",
+  "entries": [
+    {
+      "key": "mvu_plain",
+      "name": "🔧MVU · 变量更新（普通）",
+      "hint": "面板「MVU 变量更新」选「MVU（普通）」时由它负责。适用于不带 Zod/JSONPatch 的 MVU 配置。",
+      "enabled": false,
+      "role": "system",
+      "system_prompt": false,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "content": "<mvu>\n【变量更新】\n在本次回复的**最末尾**（所有正文、格式内容、状态栏之后），追加一个变量更新块。\n严格照抄下面的标签名与层级，不要改名、不要改嵌套：\n\n<UpdateVariable>\n<Analysis>\n（这里写：本次哪些变量需要变化、为什么变化）\n</Analysis>\n（这里写变量更新内容）\n</UpdateVariable>\n\n要求：\n- 整轮只输出一次，且必须放在最后。\n- <Analysis> 里写清楚改动理由；标签之后的更新内容按你所用的 MVU 写法给出。\n- 若本次没有任何变量需要更新，就**不要**输出这个块。\n- 不要把变量更新块混进正文里。\n</mvu>\n"
+    },
+    {
+      "key": "mvu_zod",
+      "name": "🔧MVU · 变量更新（Zod / JSONPatch）",
+      "hint": "面板「MVU 变量更新」选「MVU Zod」时由它负责。适用于 Zod schema + JSONPatch 的 MVU 配置。",
+      "enabled": false,
+      "role": "system",
+      "system_prompt": false,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "content": "<mvu>\n【变量更新】\n在本次回复的**最末尾**（所有正文、格式内容、状态栏之后），追加一个变量更新块。\n严格照抄下面的标签名与层级，不要改名、不要改嵌套：\n\n<UpdateVariable>\n<Analysis>\n（这里写：本次哪些变量需要变化、为什么变化）\n</Analysis>\n<JSONPatch>\n（这里写 JSON Patch 操作数组）\n</JSONPatch>\n</UpdateVariable>\n\n要求：\n- 整轮只输出一次，且必须放在最后。\n- <Analysis> 写清楚改动理由；<JSONPatch> 里只放补丁操作，**不要**在补丁里写解释或注释。\n- 补丁里的变量路径要与你所用 schema 的定义完全一致，不要新建 schema 里没有的路径。\n- 若本次没有任何变量需要更新，就**不要**输出这个块。\n- 不要把变量更新块混进正文里。\n</mvu>\n"
+    }
+  ]
+}

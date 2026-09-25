@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>预设解析器 · M0 解析 → M6 面板分组</title>
+<link rel="stylesheet" href="gui.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="logo">解</span>
+    <div>
+      <h1>预设解析器</h1>
+      <p class="sub">M0 解析 · M1 拼装 · M2 体检 · M3 框架编辑导出 · M4 从零搭 · M5 正则/脚本/外观 · M6 面板分组　<span class="dim">零依赖 · 全本地 · 不改你的文件</span></p>
+    </div>
+  </div>
+
+  <div class="top-actions">
+    <label class="btn ghost">
+      <input type="file" id="file-input" accept=".json,application/json" multiple hidden>
+      导入预设…
+    </label>
+    <button class="btn ghost" id="btn-refresh" type="button"
+            title="只重挂当前这一屏：清掉界面残渣、重画视图，用来解开跑完某个功能之后的卡顿。已导入的预设、编辑草稿、输入框里打了一半的字都会原样保留">⟳ 刷新</button>
+    <button class="btn" id="btn-export-preset">导出预设 JSON</button>
+    <label class="field">
+      当前预设
+      <select id="preset-pick"></select>
+    </label>
+    <label class="field">
+      <code>{{user}}</code>
+      <input id="opt-user" type="text" value="用户" size="6">
+    </label>
+    <label class="field">
+      <code>{{char}}</code>
+      <input id="opt-char" type="text" value="角色" size="6">
+    </label>
+    <button class="btn ghost" id="btn-export">导出报告</button>
+  </div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<main>
+  <aside class="nav" id="nav"></aside>
+  <section class="content" id="view"></section>
+</main>
+
+<footer class="foot">
+  <span id="foot-stats" class="dim">正在载入…</span>
+  <span class="dim">本工具只读：不会修改你导入的任何文件；指纹仅用于本地比对。</span>
+</footer>
+
+<pre id="verdict" hidden></pre>
+
+<script src="lib/parse.js"></script>
+<script src="lib/assemble.js"></script>
+<script src="lib/invariants.js"></script>
+<script src="lib/editor.js"></script>
+<script src="lib/skeleton.js"></script>
+<script src="lib/panelconfig.js"></script>
+<script src="lib/groupinfer.js"></script>
+<script src="lib/buildops.js"></script>
+<script src="demo/izumi-demo.js"></script>
+<script src="demo/fano-panel-demo.js"></script>
+<script src="lib/ui.js"></script>
+</body>
+</html>

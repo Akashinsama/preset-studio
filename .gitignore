@@ -1,0 +1,38 @@
+# ── 本仓库只发工具与文档，不发任何预设正文 ────────────────────────────
+#
+# 为什么：这套工具是在真实的第三方预设上开发出来的，那些预设的正文属于各自的作者。
+# 仓库里只保留"工具能跑"的最小集合；预设原文与它们的派生件一律不进版本库。
+# 需要跑那些依赖预设的测试时，把你自己的样例放进 samples/（见 samples/README.md）。
+
+# 源预设（他人的作品，仅开发环境使用）
+/Izumi_0914.json
+/Kemini_Dramatron_v3.1.json
+/梦鲸思客V4-0915.json
+
+# 成品预设与它派生的片段／压缩包
+#
+# 注意 fano-thinking-chain.json：它由 tools/build-regex.mjs 从两份源预设的
+# regex replaceString（Izumi 与 Kemini 的思维链 HTML）改写而来——那 10k+ 字的
+# HTML 是别人的东西，所以它和成品一样不进库。
+/preset/芳乃预设.json
+/preset/芳乃预设.zip
+/preset/fano-thinking-chain.json
+/芳乃预设_功能总览与使用说明/
+*.7z
+
+# 从源预设抽出来的清单（含原文）
+/inventory/
+
+# 构建产物
+/dist/
+/_zipcheck/
+/panel/preview-host.js
+/tools/gui/demo/*.js
+
+# 夹具放这里；只保留说明文件
+/samples/*
+!/samples/README.md
+
+# 临时文件（跑测试/截图留下的）
+*.log
+_shot-*.png

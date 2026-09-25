@@ -1,0 +1,79 @@
+来源提示词：搬运 228 条，逐条哈希校验通过（content/name/role/system_prompt 全等）
+本预设新增条目：5 条（不计入来源）
+  · fano-layer.json：🌸芳乃 · 助手主体、🌸芳乃 · 称呼、🌸芳乃 · 祈福口癖
+  · mvu-layer.json：🔧MVU · 变量更新（普通）、🔧MVU · 变量更新（Zod / JSONPatch）
+注入锚点：12 条强制开启
+思维链标签互斥：默认只开「📽️ICOT（三段）」（共 2 套标签 / 17 条候选）
+默认关闭的整组 summary（共 4 条）：配套正则没搬齐，开着会把事件文本漏进聊天
+内置槽位主人：main→💠CLEAR　jailbreak→💠continue　nsfw→信息结束　chatHistory→Chat History　dialogueExamples→Chat Examples　charDescription→💠Char Description　charPersonality→💠Char Personality　worldInfoBefore→💠↑Char　worldInfoAfter→💠↓Char　personaDescription→💠Persona Description　scenario→💠Scenario　enhanceDefinitions→🤔同人增强-二选一
+降级为普通条目 2 条：
+   · 💾主提示（Izumi）从槽位 main 降级为普通条目 b818823e…
+   · 短对话模式（Izumi）从槽位 jailbreak 降级为普通条目 c0c0d3d3…
+⚠ 来源声明冲突 1 条：
+   · 自定义禁词：梦鲸 vs Izumi
+来源已自动校正 14 条（声明与实际不符，按实际来源取）：
+   · 📽️ICOT（三段）：声明 Izumi → 实际取自 Kemini
+   · 📽️COT（格式友好型）：声明 Izumi → 实际取自 Kemini
+   · 💠CLEAR：声明 Izumi → 实际取自 Kemini
+   · 💠continue：声明 Izumi → 实际取自 Kemini
+   · 💠↑Char：声明 Izumi → 实际取自 Kemini
+   · 💠↓Char：声明 Izumi → 实际取自 Kemini
+   · 💠Char Description：声明 Izumi → 实际取自 Kemini
+   · 💠Char Personality：声明 Izumi → 实际取自 Kemini
+   · 💠Persona Description：声明 Izumi → 实际取自 Kemini
+   · 💠Scenario：声明 Izumi → 实际取自 Kemini
+   · 💠<DATA>：声明 Izumi → 实际取自 Kemini
+   · 💠</DATA>：声明 Izumi → 实际取自 Kemini
+   · 💠<HISTORY>：声明 Izumi → 实际取自 Kemini
+   · 💠</HISTORY>：声明 Izumi → 实际取自 Kemini
+
+条目合计 233 条　初始开启 52 条　初始启用正文 12035 字
+文件 芳乃预设.json　0.55 MB
+
+各来源初始开启条数：
+  OWN       0 /   5
+  Kemini   21 /  26
+  Izumi    31 / 194
+  梦鲸        0 /   8
+
+前 40 条（顺序 = prompt_order）：
+    1 [关] OWN     🌸芳乃 · 助手主体
+    2 [关] OWN     🌸芳乃 · 称呼
+    3 [关] OWN     🌸芳乃 · 祈福口癖
+    4 [关] OWN     🔧MVU · 变量更新（普通）
+    5 [关] OWN     🔧MVU · 变量更新（Zod / JSONPatch）
+    6 [开] Kemini  🔗
+    7 [关] Kemini  💠雪融雪降！（build渠道等过不去外审开）
+    8 [开] Kemini  💠CLEAR
+    9 [开] Kemini  🎬ROLE AND GUIDE
+   10 [开] Kemini  💠<DATA>
+   11 [开] Kemini  💠↑Char
+   12 [开] Kemini  💠Persona Description
+   13 [开] Kemini  💠Char Description
+   14 [关] Kemini  💗NSFW
+   15 [开] Kemini  💠Char Personality
+   16 [开] Kemini  💠Scenario
+   17 [开] Kemini  💠↓Char
+   18 [开] Kemini  Chat Examples
+   19 [开] Kemini  💠</DATA>
+   20 [开] Kemini  💠<HISTORY>
+   21 [开] Kemini  Chat History
+   22 [开] Kemini  💠</HISTORY>
+   23 [开] Kemini  📽️ICOT（三段）
+   24 [关] Kemini  📽️COT（格式友好型）
+   25 [关] Kemini  📐牢大防截断
+   26 [关] Kemini  💿普通防截断
+   27 [开] Kemini  ⚙️SETTING
+   28 [开] Kemini  🎬ROLEPLAY GUIDE
+   29 [开] Kemini  💠continue
+   30 [开] Kemini  💠BEGIN
+   31 [开] Kemini  💠FAKE
+   32 [开] Izumi   📋说明（点小铅笔看）
+   33 [开] Izumi   哦对了，贩子死妈
+   34 [开] Izumi   初始化变量（别动）
+   35 [关] Izumi   防429
+   36 [关] Izumi   ⚡️字数加强
+   37 [关] Izumi   ☑️防转折
+   38 [关] Izumi   ✅允许转折
+   39 [开] Izumi   ✅反直觉
+   40 [关] Izumi   ✅剧情彻底疯狂

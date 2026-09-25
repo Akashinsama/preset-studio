@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>芳乃 · 预设面板　离线预览</title>
+<style>
+  :root {
+    --chat-bg: #0d1017;
+    --chat-panel: #151a24;
+    --chat-line: #232a38;
+    --chat-text: #dfe6f2;
+    --chat-dim: #8b96ab;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 700px at 15% -10%, rgba(120, 80, 160, .35), transparent 60%),
+      radial-gradient(900px 600px at 100% 0%, rgba(212, 87, 127, .22), transparent 55%),
+      var(--chat-bg);
+    color: var(--chat-text);
+    font: 14px/1.7 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+    display: flex; justify-content: center; padding: 22px 16px;
+  }
+  .stage { width: min(1180px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
+  @media (max-width: 900px) { .stage { grid-template-columns: 1fr; } }
+
+  .chat {
+    background: var(--chat-panel);
+    border: 1px solid var(--chat-line);
+    border-radius: 14px;
+    padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 12px;
+    min-height: 78vh;
+  }
+  .chat h1 { font-size: 15px; margin: 0 0 4px; font-weight: 600; letter-spacing: .5px; }
+  .chat h1 small { display: block; font-weight: 400; font-size: 11.5px; color: var(--chat-dim); letter-spacing: 0; margin-top: 3px; }
+  .msg { border-left: 3px solid var(--chat-line); padding: 6px 0 6px 12px; }
+  .msg .who { font-size: 11.5px; color: var(--chat-dim); margin-bottom: 2px; }
+  .msg.user { border-left-color: #4a6fa5; }
+  .msg.bot { border-left-color: #d4577f; }
+  .hint {
+    margin-top: auto; padding: 12px 14px; border-radius: 10px;
+    background: rgba(212, 87, 127, .08); border: 1px solid rgba(212, 87, 127, .3);
+    font-size: 12.5px; color: #f2d7e2;
+  }
+  .hint b { color: #ff9dc0; }
+  .hint ol { margin: 6px 0 0; padding-left: 20px; }
+  .hint li { margin: 2px 0; }
+
+  .side { display: flex; flex-direction: column; gap: 12px; }
+  .card {
+    background: var(--chat-panel); border: 1px solid var(--chat-line);
+    border-radius: 14px; padding: 12px 14px;
+  }
+  .card h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--chat-dim); letter-spacing: .7px; }
+  #mock-log { font: 11.5px/1.6 ui-monospace, Consolas, monospace; color: #9fd7b6; max-height: 300px; overflow: auto; }
+  #mock-log div { border-bottom: 1px dashed rgba(255,255,255,.06); padding: 2px 0; }
+  .note { font-size: 11.5px; color: var(--chat-dim); }
+  .note code { background: rgba(255,255,255,.06); padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="chat">
+    <h1>离线预览：芳乃 · 预设面板
+      <small>背景是假的聊天界面，只为看清芳乃配色的对比度。真实环境里它是个酒馆助手脚本。</small>
+    </h1>
+
+    <div class="msg user">
+      <div class="who">你</div>
+      这是那个……预设面板吗？我怎么没看到？
+    </div>
+    <div class="msg bot">
+      <div class="who">朝武芳乃</div>
+      在左下角呀，那个写着「芳」的圆球——点一下就展开了。要是嫌它挡着，再点一次就收起来。
+    </div>
+    <div class="msg user">
+      <div class="who">你</div>
+      破甲那块我想按模型换。
+    </div>
+    <div class="msg bot">
+      <div class="who">朝武芳乃</div>
+      嗯，那是最上面那一栏。先选模型——Gemini、DeepSeek/GLM、其他——选定之后，<b>下面会跟着换成那一套的档位</b>：思维链档位、防截断档位、NSFW、还有雪融雪降那段要你自己填的正文。
+    </div>
+    <div class="msg user">
+      <div class="who">你</div>
+      以前改个选项它就跳回最上面。
+    </div>
+    <div class="msg bot">
+      <div class="who">朝武芳乃</div>
+      修好了呀。而且你选的模型我记住了，下次打开还是那一套。
+    </div>
+
+    <div class="msg user">
+      <div class="who">你</div>
+      那几个写着「自定义」的，我只能开关，没法填内容啊。
+    </div>
+    <div class="msg bot">
+      <div class="who">朝武芳乃</div>
+      现在能填了。第二个模块就是「<b>自定义内容（自己填）</b>」，六条要你自己敲的都给了输入框——指南、自定义字数、自定义思维链、用户画像、缝合处、自定义禁词。<br>
+      标「固定开启」的那两条只能改内容、不能关；其余可以先开关再填。改完点<b>保存</b>才写回去，点「撤销改动」就退回原样。
+    </div>
+    <div class="msg user">
+      <div class="who">你</div>
+      那我在下拉框里选「自定义（字数）」的时候呢？
+    </div>
+    <div class="msg bot">
+      <div class="who">朝武芳乃</div>
+      选中它，输入框就<b>直接摊在下面</b>了，不用再跑去别处找。开关排里的那些（比如自定义禁词）旁边挂着一个「✎ 填内容」，点开才展开，免得一整面都是大文本框。
+    </div>
+
+    <div class="hint">
+      <b>手风琴：模块默认折起，点标题才展开。</b>
+      <ol>
+        <li>点左下角圆形「芳」按钮开合面板；拖标题栏移动；拖右下角斜纹缩放。</li>
+        <li>点模块标题那一行展开，再点一次折回。<b>折起时标题右边仍写着当前状态</b>。</li>
+        <li><b>破甲模块</b>：先选模型（骨架），下面自动换成那一套的档位。档位不会被切换模型清掉。</li>
+        <li><b>自定义内容模块</b>：六条要自己敲的都有输入框，改完点「保存」。</li>
+        <li>单选模块里选中「自定义」那一档 → <b>输入框就地出现</b>；开关排里的可编辑项带「✎ 填内容」。</li>
+        <li>改完任何选项<b>不会跳回顶部</b>；展开状态也会记住。</li>
+        <li>界面上的名字已经是芳乃版（「小此」「泉此方」都不见了）。每次操作只写回一次预设，看右侧日志。</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h2>假酒馆助手 API 的写入记录</h2>
+      <div id="mock-log"></div>
+    </div>
+    <div class="card">
+      <h2>说明</h2>
+      <div class="note">
+        这一页把 <code>getPreset</code> / <code>updatePresetWith</code> 换成了内存里的假实现，
+        假预设 = 三份源预设的条目并集（393 条），开关状态取各自预设里的原值。<br><br>
+        所以在这里切换破甲是真的在改数据、真的只有一次写回——行为和装进酒馆后一致。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="preview-host.js"></script>
+<script src="fano-panel.js"></script>
+</body>
+</html>
