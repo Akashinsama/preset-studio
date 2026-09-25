@@ -3203,17 +3203,19 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
     };
     try {
       const demo = globalThis.__DEMO_PRESETS__ || [];
-      ok('演示数据已载入', demo.length > 0,
-        demo.length ? `${demo.length} 份` : '本仓库不随附预设正文（见 NOTICE.md），公开仓库里这一层是空的');
+      /* 演示数据在不在，取决于"这份仓库有没有带预设正文"，**不是代码对不对**。
+         所以缺了它不算失败，也不算通过，而是打印一行跳过：
+         假绿（静默当通过）比红更危险，装红（明明不是错）同样让人白查一场。 */
+      if (demo.length) ok('演示数据已载入', true, `${demo.length} 份`);
+      else out.push('  SKIP  演示数据已载入 —— 本仓库不随附预设正文（见 NOTICE.md），这一层没有样本');
       /* 没有演示数据 = 有人克隆了公开仓库（或演示数据还没生成）。
-         这时只跑与预设无关的那几条，其余明确 SKIP：
-         **不假装通过**（那样"没测"和"测过了"就分不清了），也不整篇报错（那看着像工具坏了）。 */
+         这时只跑与预设无关的那几条，其余明确跳过并说明去哪里补夹具。 */
       if (!demo.length) {
         noFixtureSelfTest(ok);
         out.push('');
-        out.push('SKIP  其余断言需要演示数据（tools/gui/demo/*.js）——本仓库不随附预设正文。');
+        out.push('SKIP  依赖演示数据的全部断言（本层完整套的其余部分）——没有 tools/gui/demo/*.js 就无从跑起。');
         out.push('      想跑全套：按 samples/README.md 放好夹具，再 node tools/build-gui-demo.mjs；');
-        out.push('      命令行那几套同理（node tools/test-gui.mjs 等会自己打印 SKIP）。');
+        out.push('      命令行那几套同理（node tools/test-gui.mjs 等会打印各自的 SKIP 与项数）。');
         return finishSelfTest(out, pass, fails);
       }
       const m = PP.parsePreset(demo[0].json, demo[0].file, demo[0].bytes);
