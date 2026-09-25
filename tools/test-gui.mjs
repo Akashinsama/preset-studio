@@ -1594,6 +1594,23 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
     ok('半截 edit 配置也显示得出毫秒（走 clampConfig）',
       PCg.clampConfig(PCg.mergeConfig(PCg.DEFAULT_CONFIG, { edit: { longPress: { enabled: false } } })).edit.longPress.ms === 500);
   }
+
+  /* 20e. 面板"没有自带分组"这一类输入（另一支面板 / 适配副本）。
+     项目里真实存在这种产物（`芳乃预设_v2.8.1-适配.json`：extractDefaults 给 0 个模块）。
+     界面遇到它必须**退回按当前预设推断**，而不是摆一个空屏幕——
+     「面板分组」那一屏就是在这儿出过"读不出来分组"（导入 v2.8.4 之后的投诉之一）。 */
+  {
+    const empty = PCg.patchBlock(NEW_PANEL, 'GROUPS_DEFAULT', []);
+    ok('把面板自带的分组掏空 → extractDefaults 给 0 个模块（这就是那一类的形状）',
+      PCg.extractDefaults(empty).groups.length === 0,
+      JSON.stringify(PCg.extractDefaults(empty).groups.length));
+    ok('这种输入下面板仍然认得出来是我们这套（身份标记与能力标记都还在）',
+      PEg.panelSupport(empty).ours === true,
+      JSON.stringify(PEg.panelSupport(empty)));
+    ok('兜底那条路还在：按成品预设推断能给出模块（界面就靠它避免空屏）',
+      (globalThis.PresetGroupInfer.inferGroups(m, base).groups || []).length > 0,
+      String((globalThis.PresetGroupInfer.inferGroups(m, base).groups || []).length));
+  }
 }
 
 console.log('\n────────────────────────────────────────');

@@ -269,15 +269,19 @@ const PASSES = [
       const hasAll = /加入所有条目（兜底草稿）/.test(dom);
       const hasApply = /应用到面板脚本|装进这份预设/.test(dom);
       const explainsNames = /面板是按\*\*条目名\*\*匹配/.test(dom);
-      /* 这份预设的分组跟面板自带那套对不上时会**自动推断**一版（没有空状态提示），
-         对得上才显示空状态。两种都是正常状态，所以按实际是哪一种来判。 */
-      const emptyState = /现在用的是面板自带的分组/.test(dom);
-      const autoInferred = /自动推断|推断/.test(dom) && count(dom, /class="fp-mod"/g) > 0;
+      /* 这一屏现在**一定会把面板当前的分组列出来**：自带那套（只读列出）或自动推断的草稿。
+         早先这条规则把"空状态那句话"当成正常状态——而那句话正是"读不出来面板分组"的来源
+         （用户导入 v2.8.4 之后的投诉：面板本来就有 25 个模块，却一个都不列）。
+         所以改成按**实际列出来的成员数**判，两种正常状态都认。 */
+      const chips = count(dom, /class="chip"/g);
+      const modeText = /面板自带的分组（\d+ 个模块，只读）/.test(dom) ? '用面板自带的（只读列出）'
+        : /草稿：\d+ 个模块/.test(dom) ? '自动推断了一版'
+          : '什么都没画';
       return [
         [`推断按钮 ${hasInfer ? '在' : '缺'} · 兜底草稿 ${hasAll ? '在' : '缺'} · 应用按钮 ${hasApply ? '在' : '缺'}`,
           hasInfer && hasAll && hasApply],
-        [`说了"按条目名匹配" ${explainsNames ? '是' : '否'} · 分组已就绪（${emptyState ? '用面板自带的' : autoInferred ? '自动推断了一版' : '什么都没画'}）`,
-          explainsNames && (emptyState || autoInferred)],
+        [`说了"按条目名匹配" ${explainsNames ? '是' : '否'} · 分组已就绪（${modeText}，列出 ${chips} 个成员胶囊）`,
+          explainsNames && chips >= 20],
       ];
     },
   },

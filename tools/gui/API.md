@@ -810,7 +810,7 @@ verifySourceIntact(json, edit, model, fingerprintFn) // → { checked, changed, 
 
 | 命令 | 覆盖内容 | 实测 |
 | --- | --- | --- |
-| `node tools/test-gui.mjs` | M0 解析 / M1 拼装（含人造小预设的 setvar/getvar/addvar 时序语义）、M2 体检的**每个不变式都造一个反例**、M3 编辑器的空编辑逐字节等价与来源 sha1 自证、M4 骨架、正则编辑、脚本编辑、面板外观端到端、分组推断、EJS 识别、`PresetBuildOps` 三层操作 | 通过 350 项 |
+| `node tools/test-gui.mjs` | M0 解析 / M1 拼装（含人造小预设的 setvar/getvar/addvar 时序语义）、M2 体检的**每个不变式都造一个反例**、M3 编辑器的空编辑逐字节等价与来源 sha1 自证、M4 骨架、正则编辑、脚本编辑、面板外观端到端、分组推断、EJS 识别、`PresetBuildOps` 三层操作 | 通过 353 项 |
 | `node tools/test-panelconfig.mjs` | `panelconfig.js` 的 `clampConfig()` 与**真加载的面板** `__FANO_PANEL__.config().effective` 逐字段比对（防漂移）、配置块抠取/回写只动一段、壁纸图层、缩放、20 个 token 都有中文说明且都真被用到、`GROUPS_OVERRIDE` 读写与面板真的照它渲染、"装进预设"导出的脚本真能跑起来 | 通过 101 项 |
 | `node tools/test-panel.mjs` | `panel/fano-panel.js` 的面板逻辑（假 DOM 真加载）：手风琴、破甲骨架与档位、档位不被切换清掉、角色名替换、滚动位置、每次操作只写回一次、长按条目改正文（含取消/吞点击/注入位标记只读） | 通过 155 项 |
 | `node tools/check-preset.mjs` | **成品预设的权威校验**：结构、**来源提示词一字未改（sha1 硬约束）**、新增条目范围、内置槽位唯一性与锚点、面板兼容性、破甲初始状态、扩展（面板与正则）、思维链标签互斥 | 通过 108 项 |

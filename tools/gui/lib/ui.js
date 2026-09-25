@@ -2065,8 +2065,18 @@
       const p = preset();
       if (!p || !GI) return [...title('面板分组', '先载入一份预设。')];
       const A = ensureAppearance();
+      /* 这一屏要**先把面板现在的分组读出来**，再谈改：
+           · 有草稿（你改过 / 自动推断过）→ 显示草稿，全可编辑；
+           · 没草稿、面板自带的分组又对得上这份预设 → 把自带那套**列出来**（只读，改的话第一次动作会复制成草稿）；
+           · 没草稿、自带的分组对不上（换了预设）或**根本没有**（另一支面板 / 适配副本）
+             → canvasState() 已经按这份预设推断了一版放进 state.groupsDraft，并给 why。
+         早先这里只读 `state.groupsDraft`：没草稿时整页就一句"点上面『按这份预设自动推断』"，
+         一个模块都不列——看起来就是"读不出来面板分组"，而且会把现成的好分组换成猜的。 */
+      const cs = canvasState();
       const draft = state.groupsDraft;
-      const check = draft ? GI.validateGroups(draft, m) : { errors: [], warnings: [] };
+      const builtin = (!draft && cs.editable === false) ? cs.draft : null;
+      const shown = draft || builtin;
+      const check = shown ? GI.validateGroups(shown, m) : { errors: [], warnings: [] };
       const names = m.entries.filter((e) => e.listed).map((e) => e.name).filter(Boolean);
       const nameSet = new Set(names);
 
@@ -2079,20 +2089,24 @@
         return seen;
       };
 
-      const groupCard = (g, i) => {
+      /** 一个模块卡片。ro=true（只读）时不给出任何编辑控件——那是"面板自带的分组"，
+          想改就先点「复制成可编辑草稿」，改的是草稿、面板本身不动。 */
+      const groupCard = (g, i, ro) => {
         const bad = (g.members || []).filter((n) => !nameSet.has(n));
         return h('div', { class: 'card', 'data-level': bad.length ? 'err' : 'info' }, [
           h('h3', {}, [
             h('span', { class: 'pill ' + (g.mode === 'fixed' ? 'slot' : g.mode === 'editable' ? 'warn' : 'on'), text: g.mode }),
             ' ',
-            h('input', {
-              type: 'text', class: 'nameinput', value: g.label, style: { width: '260px', display: 'inline-block' },
-              onchange: (ev) => { g.label = ev.target.value; bump(); },
-            }),
+            ro
+              ? h('b', { text: g.label })
+              : h('input', {
+                type: 'text', class: 'nameinput', value: g.label, style: { width: '260px', display: 'inline-block' },
+                onchange: (ev) => { g.label = ev.target.value; bump(); },
+              }),
             ' ',
-            h('span', { class: 'dim', text: `${(g.members || []).length} 条` }),
+            h('span', { class: 'dim', text: `${(g.members || []).length} 条${ro ? `　分节：${g.__section || '未分节'}` : ''}` }),
           ]),
-          h('div', { class: 'addform' }, [
+          ro ? null : h('div', { class: 'addform' }, [
             h('label', { class: 'numfield' }, [
               h('span', { text: '模式' }),
               h('select', {
@@ -2118,14 +2132,14 @@
             }),
           ]),
           h('div', { class: 'checkline' }, [h('b', { text: '说明　' }), h('span', { class: 'dim', text: g.note || '（没有说明）' })]),
-          h('div', { class: 'memberlist' }, (g.members || []).map((n) => h('span', { class: 'chip', 'data-bad': nameSet.has(n) ? '0' : '1', title: nameSet.has(n) ? '' : '这个名字在这份预设里找不到' }, [
+          h('div', { class: 'memberlist' }, (g.members || []).map((n) => h('span', { class: 'chip', 'data-bad': nameSet.has(n) ? '0' : '1', title: nameSet.has(n) ? '' : '这个名字在这份预设里找不到' }, ro ? [n] : [
             n,
             h('b', {
               text: '✕', title: '移出模块',
               onclick: () => { g.members = g.members.filter((x) => x !== n); ensureEditableMap(draft, i, g); bump(); },
             }),
           ]))),
-          h('div', { class: 'addform', style: { marginTop: '8px' } }, [
+          ro ? null : h('div', { class: 'addform', style: { marginTop: '8px' } }, [
             h('select', {
               onchange: (ev) => {
                 const v = ev.target.value;
@@ -2140,19 +2154,27 @@
             )),
             bad.length ? h('span', { class: 'pill err', text: `${bad.length} 个名字不在预设里` }) : null,
           ]),
+          ro && bad.length ? h('div', { class: 'checkline' }, [h('span', { class: 'pill err', text: `${bad.length} 个名字不在预设里` })]) : null,
         ]);
       };
 
       return [
         ...title('面板分组',
           '这一页决定**面板上出现哪些模块、每个模块管哪些条目**。面板是按**条目名**匹配的，所以名字必须和预设里完全一致。'
-          + '点心「按这份预设自动推断」可以从变量关系推出一版草稿，再自己改。'),
+          + '打开就会先把面板现在的分组列出来；想换一套再点「按这份预设自动推断」。'),
         h('div', { class: 'card' }, [
           h('h3', {}, ['这份面板现在用哪套分组　',
             draft
               ? h('span', { class: 'pill warn', text: `草稿：${draft.groups.length} 个模块（还没应用）` })
-              : h('span', { class: 'pill on', text: '面板自带的分组' }),
+              : h('span', { class: 'pill on', text: `面板自带的分组（${builtin ? builtin.groups.length : 0} 个模块，只读）` }),
           ]),
+          /* 为什么会自动摆出草稿：说清原因，别让人对着一个"不是我搭的东西"发懵 */
+          (draft && cs.auto) ? h('div', { class: 'checkline' }, [
+            h('b', { text: '为什么这里是一版草稿　' }),
+            cs.why === 'no-defaults'
+              ? '这份面板**没有自带的分组**（不是本工具这套面板，或者是适配副本），所以按当前预设推了一版当起点。'
+              : `面板自带的分组对不上这份预设（成员名只对得上 ${cs.defaultsMismatch ? cs.defaultsMismatch.hit + '/' + cs.defaultsMismatch.total : '少数'}），所以按当前预设推了一版当起点。`,
+          ]) : null,
           h('div', { class: 'checkline' }, [
             h('b', { text: '什么时候需要改它　' }),
             '把这份面板换到**另一份预设**上时。面板自带的分组按的是它原来那份预设的条目名，'
@@ -2161,7 +2183,7 @@
           h('div', { style: { marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
             h('button', { class: 'btn', text: '按这份预设自动推断', onclick: inferNow }),
             h('button', { class: 'btn ghost', text: '加入所有条目（兜底草稿）', onclick: () => { state.groupsDraft = draftAll(m); markDraftBaseline(); bump(); } }),
-            h('button', { class: 'btn ghost', text: '清空草稿（回到面板自带）', onclick: () => { state.groupsDraft = null; state.groupsDraftBaseline = null; bump(); } }),
+            draft ? h('button', { class: 'btn ghost', text: '清空草稿（回到面板自带）', onclick: () => { state.groupsDraft = null; state.groupsDraftBaseline = null; bump(); } }) : null,
             h('button', { class: 'btn', text: (preset() && PE.panelScriptViews(state.edit, preset().json, preset().model).length) ? '应用到面板脚本' : '装进这份预设', onclick: applyGroups }),
           ]),
           h('div', { class: 'dim', style: { marginTop: '8px' }, text: '应用/装进只替换面板脚本里那段「分组覆盖」，代码一行不动。' }),
@@ -2188,16 +2210,24 @@
             }),
             h('span', { class: 'dim', text: `共 ${draft.groups.length} 个模块 / 分节 ${sectionsOf(draft).length} 个` }),
           ]),
-        ]) : null,
-        ...(draft ? draft.groups.map(groupCard) : [
-          h('div', { class: 'card' }, h('div', { class: 'empty', text: '现在用的是面板自带的分组。点上面的「按这份预设自动推断」生成一版草稿。' })),
+        ]) : h('div', { class: 'card' }, [
+          h('div', { class: 'checkline' }, [
+            h('b', { text: '这是面板自带的分组（只读）　' }),
+            `一共 ${builtin ? builtin.groups.length : 0} 个模块。要改就先复制成草稿——面板本身一行不动，改完点「应用到面板脚本」才生效。`,
+          ]),
+          h('div', { style: { marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+            h('button', { class: 'btn', text: '复制成可编辑草稿', onclick: () => { ensureDraft(); bump(); } }),
+          ]),
         ]),
-        /* 分节的顺序也照草稿显示一遍，让人看清最终长什么样 */
-        draft ? h('div', { class: 'card' }, [
+        ...(shown ? shown.groups.map((g, i) => groupCard(g, i, !draft)) : [
+          h('div', { class: 'card' }, h('div', { class: 'empty', text: '这份预设里既没有面板自带的分组，也没能推断出一版草稿。面板可能还没装进这份预设。' })),
+        ]),
+        /* 分节的顺序也照这份显示一遍，让人看清最终长什么样 */
+        shown ? h('div', { class: 'card' }, [
           h('h3', { text: '面板上会长成这样（分节 → 模块）' }),
-          ...sectionsOf(draft).map((s) => h('div', { class: 'checkline' }, [
+          ...sectionsOf(shown).map((s) => h('div', { class: 'checkline' }, [
             h('b', { text: s + '　' }),
-            h('span', { class: 'dim', text: draft.groups.filter((g) => (g.__section || '未分节') === s).map((g) => `${g.label}(${g.mode})`).join('、') }),
+            h('span', { class: 'dim', text: shown.groups.filter((g) => (g.__section || '未分节') === s).map((g) => `${g.label}(${g.mode})`).join('、') }),
           ])),
         ]) : null,
       ];
@@ -2764,14 +2794,28 @@
     const hit = all.filter((n) => names.has(n)).length;
     const ratio = all.length ? hit / all.length : 0;
 
-    if (defaults.groups.length && ratio < 0.5 && GI && m) {
+    /* 面板自带的分组有三种情形，必须分开处理（早先只判了中间那种，于是另两种都摆空屏幕）：
+         ① 自带分组对得上这份预设（ratio ≥ 0.5）→ 就照它画（只读），别拿猜的替换现成的；
+         ② 自带分组对不上（换了一份预设）→ 按这份预设推断一版当起点，并说明为什么；
+         ③ **根本没有自带分组**（另一支面板 / 适配副本：它的分组写在别处）→ 同上，
+            这里原来因为"0 个分组 ⇒ ratio 0"被 `defaults.groups.length &&` 挡掉，
+            结果是画布和分组页双双空白，而界面上一个字都不说。 */
+    const noDefaults = defaults.groups.length === 0;
+    if (GI && m && (noDefaults || ratio < 0.5)) {
       const inf = GI.inferGroups(m, preset()?.json);
       state.groupsDraft = draftFromInference(inf);
       state.groupsDraftKey = preset()?.file || '';
       state.groupsDraftAuto = true;
       state.groupsNotes = inf.notes;
       markDraftBaseline();        // 自动推断只负责"摆出来给你看"，别拿它去拦人导出
-      return { draft: state.groupsDraft, editable: true, auto: true, defaultsMismatch: { hit, total: all.length } };
+      return {
+        draft: state.groupsDraft,
+        editable: true,
+        auto: true,
+        /* 为什么摆出的是推断版：界面要拿它说一句话（空屏幕还一声不吭最气人） */
+        why: noDefaults ? 'no-defaults' : 'mismatch',
+        defaultsMismatch: noDefaults ? null : { hit, total: all.length },
+      };
     }
     return { draft: BO.seedFrom(defaults), editable: false, auto: false, defaultsCount: defaults.groups.length };
   }
@@ -4174,6 +4218,71 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
             PE.panelSupport(PE.panelScriptViews(state.edit, preset().json, preset().model)[0].content).ours === true);
 
           state.view = 'export';
+          state.rev++;
+          renderAll();
+        }
+
+        /* ── 「面板分组」要先把面板现在的分组读出来（真实投诉：v2.8.4 导进去"读不出来"）─────
+           那一屏原来只读 state.groupsDraft，没草稿时整页只有一句"点上面『按这份预设自动推断』"，
+           一个模块都不列——用户以为读不出来；而面板**本来就有** 25 个模块、成员名 100% 对得上。 */
+        {
+          const chipCount = () => document.getElementById('view').querySelectorAll('span.chip').length;
+          const modCards = () => document.getElementById('view').querySelectorAll('div.card[data-level]').length;
+          /* 这一段会碰草稿与视图状态，而**后面的自检步骤要靠"你搭过面板"的那份草稿**
+             判断导出该不该被拦——动过的东西必须原样还回去（真踩过：清空草稿之后
+             后面那条断言连挂、还因为找不到按钮抛异常，整页自检塌掉）。 */
+          const keep = {
+            draft: state.groupsDraft,
+            baseline: state.groupsDraftBaseline,
+            auto: state.groupsDraftAuto,
+            key: state.groupsDraftKey,
+            notes: state.groupsNotes,
+            view: state.view,
+            /* 外观编辑态也要留着：它记着 applied/dirty，而"这一轮动过面板外观"是
+               后面那条导出拦截断言的前提（清掉它 = 那一步不再拦，后面连锁塌）。 */
+            appearance: state.appearance,
+          };
+          state.groupsDraft = null;
+          state.groupsDraftBaseline = null;
+          state.view = 'groups';
+          state.rev++;
+          renderAll();
+          const v1 = document.getElementById('view');
+          ok('没有草稿时，「面板分组」把面板自带的分组**列出来了**（不再是空屏 + 一句提示）',
+            chipCount() >= 100 && modCards() >= 20,
+            `模块卡 ${modCards()} 个 · 成员胶囊 ${chipCount()} 个`);
+          ok('并说明这是面板自带的分组（只读）',
+            /面板自带的分组（\d+ 个模块，只读）/.test(v1.textContent),
+            (v1.textContent.match(/面板自带的分组[^　]*/) || ['没找到'])[0]);
+          ok('只读时不给出编辑控件（改名输入框 / ✕ / 删除模块）',
+            v1.querySelectorAll('input.nameinput').length === 0 && !/删除模块/.test(v1.textContent));
+          ok('给了「复制成可编辑草稿」这条活路', /复制成可编辑草稿/.test(v1.textContent));
+
+          /* 面板**没有**自带分组（另一支面板 / 适配副本）→ 必须退回推断并说明原因 */
+          const cur2 = PE.panelScriptViews(state.edit, preset().json, preset().model)[0];
+          const noGroups = PC.patchBlock(cur2.content, 'GROUPS_DEFAULT', []);
+          ok('自检：把面板的分组块掏空（模拟"不是我们这套面板"的产物）',
+            PC.extractDefaults(noGroups).groups.length === 0);
+          PE.setScriptField(state.edit, preset().json, cur2.ref, 'content', noGroups);
+          state.appearance = null;
+          state.groupsDraft = null;
+          state.rev++;
+          renderAll();
+          const v2 = document.getElementById('view');
+          ok('没有自带分组时：自动推断出一版草稿并列出模块（不是空屏）',
+            chipCount() >= 50 && modCards() >= 10, `模块卡 ${modCards()} 个 · 成员胶囊 ${chipCount()} 个`);
+          ok('并列出了"为什么这里是一版草稿"（说了没有自带分组）',
+            /为什么这里是一版草稿/.test(v2.textContent) && /没有自带的分组/.test(v2.textContent));
+
+          /* 收尾：面板内容换回原文，并把上面动过的状态**原样还回去** */
+          PE.setScriptField(state.edit, preset().json, cur2.ref, 'content', cur2.content);
+          state.appearance = keep.appearance;
+          state.groupsDraft = keep.draft;
+          state.groupsDraftBaseline = keep.baseline;
+          state.groupsDraftAuto = keep.auto;
+          state.groupsDraftKey = keep.key;
+          state.groupsNotes = keep.notes;
+          state.view = keep.view;
           state.rev++;
           renderAll();
         }

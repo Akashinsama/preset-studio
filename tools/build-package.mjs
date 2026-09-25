@@ -132,7 +132,7 @@ const TOOLS_KEEP = [
   'test-mobile.mjs',         // 手机场景（20 项）
   'test-iframe.mjs',         // iframe 嵌套与加载时序（34 项）
   'test-regex.mjs',          // 思维链折叠链（30 项）
-  'test-gui.mjs',            // 解析 / 拼装内核 + M3 编辑端到端（350 项）
+  'test-gui.mjs',            // 解析 / 拼装内核 + M3 编辑端到端（353 项）
   'check-browser.mjs',       // 真 Chrome · 面板几何（58 项）
   'check-gui-browser.mjs',   // 真 Chrome · 编辑器十屏
   'build-all.mjs',           // 一条命令重跑整条链（缺夹具会自己造合成夹具）

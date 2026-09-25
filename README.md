@@ -32,7 +32,7 @@ node tools/build-all.mjs          # make-fixture → build-regex → build-panel
 ```bash
 node tools/selftest.mjs           # 72 项   包内自检：库 + 面板 + 样例预设
 node tools/test-regex.mjs         # 30 项   思维链折叠链逻辑
-node tools/test-gui.mjs           # 350 项  解析 / 拼装内核 + M3 编辑端到端
+node tools/test-gui.mjs           # 353 项  解析 / 拼装内核 + M3 编辑端到端
 node tools/test-panel.mjs         # 155 项  面板逻辑（假 DOM）
 node tools/test-panelconfig.mjs   # 101 项   面板外观配置夹取一致性
 node tools/test-mobile.mjs        # 20 项   手机场景
@@ -143,10 +143,10 @@ node tools/test-panel.mjs             # 面板逻辑（155 项）
 node tools/test-panelconfig.mjs       # 面板外观配置 + 分组覆盖 + 壁纸分层 + 颜色不空转（101 项）
 node tools/test-mobile.mjs            # 手机场景（20 项，假 DOM）
 node tools/test-iframe.mjs            # iframe 嵌套与加载时序（34 项，假 DOM）
-node tools/test-gui.mjs               # 生成器内核 M0–M6 + EJS + 搭建 + 导出前检查（350 项）
+node tools/test-gui.mjs               # 生成器内核 M0–M6 + EJS + 搭建 + 导出前检查（353 项）
 node tools/check-browser.mjs          # 真浏览器 · 桌面视口（58 项）
 node tools/check-browser.mjs --mobile # 真浏览器 · 手机视口（58 项）
-node tools/check-gui-browser.mjs      # 真浏览器 · 生成器 GUI 十屏（228 项 + 数 DOM）
+node tools/check-gui-browser.mjs      # 真浏览器 · 生成器 GUI 十屏（235 项 + 数 DOM）
 node tools/build-gui-demo.mjs         # 生成器演示数据（Izumi + 芳乃 + 面板快照 + 假酒馆 API）
 node tools/build-package.mjs          # 打包：dist/芳乃预设生成器/ + zip（只带芳乃预设当示例）
 ```
@@ -395,8 +395,8 @@ M0/M1/M2 看的、体检的、导出的，是同一条路径出来的同一份�
 体检器自身的准确性也当成测试对象：**拿成品预设当反例**——它已经过了 108 项构建校验，
 如果体检器在它身上报"必改"，那多半是体检器误报（测试里就是这么断言的，必改为 0）。
 
-自检：`node tools/test-gui.mjs`（350 项，纯 Node）＋ `node tools/check-gui-browser.mjs`
-（228 项页面断言 + 逐屏数 DOM，真 Chrome，桌面/手机两个视口）。
+自检：`node tools/test-gui.mjs`（353 项，纯 Node）＋ `node tools/check-gui-browser.mjs`
+（235 项页面断言 + 逐屏数 DOM，真 Chrome，桌面/手机两个视口）。
 
 **导出前检查会盯住"面板到底进没进这个文件"**：面板是**脚本**（进 `extensions.tavern_helper.scripts`），
 条目是 `prompts` ——两条不同的路。在画布上搭了功能区/改了外观却还没点「装进这份预设」时，
