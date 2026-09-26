@@ -263,8 +263,9 @@
          而 editor.js 那边照样拦住导出、卡片上又**没有补救按钮**，人就堵死了。
          （真踩过：用户直接问"「换成新版面板」这个按钮在哪儿"。） */
       const CAP_LABEL = {
-        longPressEdit: '长按条目改正文',
-        controlsV06: '顶部隐藏按钮 / 壁纸开关 + 纯色底 / 小方案长按改名',
+        longPressEdit: '三击条目改正文',
+        tripleClick: '三击手势（这份面板里还是长按）',
+        controlsV06: '顶部隐藏按钮 / 壁纸开关 + 纯色底 / 小方案改名',
       };
       const missing = sup.ours ? (sup.missing || []) : [];
       const missingText = missing.map((k) => CAP_LABEL[k] || k).join('、');
@@ -1974,36 +1975,37 @@
           ]),
           h('div', { class: 'dim', style: { marginTop: '8px' }, text: '标题在上面那张卡里。' }),
       ]));
-      /* 交互：长按条目改正文（面板 0.5.0 起的能力）。
+      /* 交互：三击条目改正文（面板 0.5.0 起有这个能力，0.7.0 起手势从长按改成三击）。
          显示值走 clampConfig（夹取后的生效值，缺键/脏值都有默认），
-         写入走 setLongPress：老面板的 CONFIG 里没有 edit，这一步会把它建出来。 */
-      const ED = PC.clampConfig(cfg).edit.longPress;
-      const setLongPress = (patch) => {
+         写入走 setTripleClick：老面板的 CONFIG 里写的是 `longPress`，这里写成新键
+         （面板读的时候新键优先、老键只看 enabled，所以老预设不会丢设置）。 */
+      const ED = PC.clampConfig(cfg).edit.tripleClick;
+      const setTripleClick = (patch) => {
         if (!cfg.edit || typeof cfg.edit !== 'object') cfg.edit = {};
-        const cur = cfg.edit.longPress && typeof cfg.edit.longPress === 'object' ? cfg.edit.longPress : {};
-        cfg.edit.longPress = { ...cur, ...patch };
+        const cur = cfg.edit.tripleClick && typeof cfg.edit.tripleClick === 'object' ? cfg.edit.tripleClick : {};
+        cfg.edit.tripleClick = { ...cur, ...patch };
         appearanceMarkDirty();
         bump();
       };
       left.push(h('div', { class: 'card' }, [
           h('h3', {}, ['交互　',
-            ED.enabled ? h('span', { class: 'pill on', text: '长按看/改正文：开' }) : h('span', { class: 'pill off', text: '长按看/改正文：关' })]),
+            ED.enabled ? h('span', { class: 'pill on', text: '三击看/改正文：开' }) : h('span', { class: 'pill off', text: '三击看/改正文：关' })]),
           h('div', { class: 'checkline' }, [
-            h('b', { text: '在酒馆里长按条目　' }),
-            '按住面板上任一条目（多选开关行、单选下拉下面那行、只读区的名字）就打开它的正文编辑器，改完点保存——和其它操作一样只写回预设一次。',
+            h('b', { text: '在酒馆里三击条目　' }),
+            '连点三下面板上任一条目（多选开关行、单选下拉下面那行、只读区的名字）就打开它的正文编辑器，改完点保存——和其它操作一样只写回预设一次。',
           ]),
           h('div', { class: 'kpis' }, [
             h('label', { class: 'numfield' }, [
-              h('span', { text: '长按改正文' }),
+              h('span', { text: '三击改正文' }),
               h('input', {
                 type: 'checkbox', checked: ED.enabled,
-                onchange: (ev) => setLongPress({ enabled: ev.target.checked }),
+                onchange: (ev) => setTripleClick({ enabled: ev.target.checked }),
               }),
-              h('span', { class: 'dim', text: '关掉就整个手势都不存在（面板上也不会提"长按"两个字）' }),
+              h('span', { class: 'dim', text: '关掉就整个手势都不存在（面板上也不会提"三击"两个字），点一下马上生效' }),
             ]),
-            numField('长按时长 ms', ED.ms, { min: 250, max: 1500, step: 50 }, (v) => setLongPress({ ms: v }), '按这么久算长按；移动超过 8px 就取消'),
+            numField('三击间隔 ms', ED.ms, { min: 250, max: 1500, step: 50 }, (v) => setTripleClick({ ms: v }), '每两下之间不超过这么久算三击；它同时是"单击最多等多久"（250 是最小值：再小就来不及点三下）'),
           ]),
-          h('p', { class: 'viewdesc', text: '判定规则：按住不动才算长按；手机上一滑动就是"在滚动"，不会误触；长按触发后紧跟着的那次点击会被吞掉，所以不会顺手把条目开关掉。酒馆的注入位标记（聊天记录/角色卡/世界书这些位置标记）长按只给看——它们的正文必须为空，写进去会让对应内容进不了上下文。' }),
+          h('p', { class: 'viewdesc', text: '判定规则：连点三下、每两下之间不超过上面那个毫秒数才算三击——三击**不会**顺手把这一条开关掉、也不会把方案应用掉（前两下点击被推迟，最后丢掉）。代价是单击会等这么久才生效，这是"分得清三击"必须付的钱。酒馆的注入位标记（聊天记录/角色卡/世界书这些位置标记）三击只给看——它们的正文必须为空，写进去会让对应内容进不了上下文。' }),
       ]));
       /* 壁纸 */
       left.push(h('div', { class: 'card' }, [
@@ -4176,7 +4178,7 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
         ok('这时卡改口说"已装进这份预设"',
           document.getElementById('view').textContent.includes('已装进这份预设'));
 
-        /* ── 面板能力：预设里那份面板会不会"长按条目改正文" ──────────────
+        /* ── 面板能力：预设里那份面板能不能"三击条目改正文" ──────────────
            分寸（照 tool-guardrails 的三问）：
              · 是我们这套面板、但缺能力标记 → 拦住（导出的就是他要的那份面板，
                缺能力＝没达到目的），并给一键补救「换成新版面板」＋一条活路
@@ -4185,7 +4187,7 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
         {
           const capKey = PE.PANEL_CAP_MARKS.longPressEdit;
           const now = PE.panelScriptViews(state.edit, preset().json, preset().model)[0];
-          ok('自检：面板脚本里带着"长按改正文"的能力标记', String(now.content).includes(capKey));
+          ok('自检：面板脚本里带着"三击改正文"的能力标记', String(now.content).includes(capKey));
           ok('自检：认得出这是我们这套面板（有分组块）', PE.panelSupport(now.content).ours === true,
             JSON.stringify(PE.panelSupport(now.content)));
           const titleBefore = PC.extractConfig(now.content).title;
@@ -4197,7 +4199,7 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
           state.view = 'export';
           renderAll();
           ok('旧版面板 → 导出被拦住，并点明原因',
-            runExportChecks().blocking.some((b) => b.kind === '面板是旧版：不能长按改正文'),
+            runExportChecks().blocking.some((b) => b.kind === '面板是旧版：不能三击改正文'),
             JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
           const upBtn = [...document.getElementById('view').querySelectorAll('button')]
             .find((b) => /换成新版面板/.test(b.textContent));
@@ -4241,7 +4243,7 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
           state.rev++;
           renderAll();
           ok('又变回拦住（不能靠一次点掉就永远闭嘴）',
-            runExportChecks().blocking.some((b) => b.kind === '面板是旧版：不能长按改正文'));
+            runExportChecks().blocking.some((b) => b.kind === '面板是旧版：不能三击改正文'));
           const keepBtn = [...document.getElementById('view').querySelectorAll('button')]
             .find((b) => /就带这个旧面板导出/.test(b.textContent));
           ok('卡里有活路「就带这个旧面板导出」', !!keepBtn,
@@ -4249,7 +4251,7 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
           keepBtn.click();
           ok('说了"就带旧的"→ 放行', runExportChecks().blocking.length === 0,
             JSON.stringify(runExportChecks().blocking.map((b) => b.kind)));
-          ok('放行之后仍留一条提示（免得以为长按能用）',
+          ok('放行之后仍留一条提示（免得以为三击能用）',
             runExportChecks().warnings.some((w) => w.kind === '带着旧版面板导出'));
 
           /* 别人的面板：只提醒，不拦、不给替换按钮 */
@@ -4278,7 +4280,7 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
            真实报错（导入一份自带旧面板的预设之后）：
              Uncaught TypeError: Cannot read properties of undefined (reading 'longPress')
            那份面板的 CONFIG 块是旧版，没有 edit / antitrunc / button 这些后来才加的键，
-           而外观页直接读 cfg.edit.longPress。
+           而外观页直接读 cfg.edit.<那一档的键>（0.5.0–0.6.0 是 longPress，0.7.0 起是 tripleClick）。
            修法：ensureAppearance() 读配置时一律 mergeConfig(DEFAULT_CONFIG, 读到的)，
            界面就能安全地直接取字段。这条断言钉住它。 */
         {
@@ -4298,10 +4300,10 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
           ok('老面板打开「面板外观」不抛异常（这一条以前整页白掉）', !threw,
             threw ? String(threw && threw.message) : '');
           const av = document.getElementById('view');
-          ok('外观页照常渲染出「交互」那张卡', /长按改正文/.test(av.textContent) && /长按时长/.test(av.textContent));
-          const msField = [...av.querySelectorAll('label.numfield')].find((l) => /长按时长/.test(l.textContent));
-          ok('长按毫秒显示的是补齐后的默认值 500',
-            !!msField && msField.querySelector('input').value === '500',
+          ok('外观页照常渲染出「交互」那张卡', /三击改正文/.test(av.textContent) && /三击间隔/.test(av.textContent));
+          const msField = [...av.querySelectorAll('label.numfield')].find((l) => /三击间隔/.test(l.textContent));
+          ok('三击窗口显示的是补齐后的默认值 250',
+            !!msField && msField.querySelector('input').value === '250',
             msField ? msField.querySelector('input').value : '没找到这个字段');
 
           /* 在外观页按一次「应用到面板脚本」→ 老面板的 CONFIG 被补齐（含 edit） */
@@ -4310,12 +4312,12 @@ ${hostSrc ? '<script>' + hostSrc + '<\/script>' : ''}
             [...av.querySelectorAll('button')].map((b) => b.textContent).join('｜'));
           applyBtn.click();
           const fixed = PC.extractConfig(PE.panelScriptViews(state.edit, preset().json, preset().model)[0].content);
-          ok('应用一次之后老面板被补齐：edit.longPress 进来了',
-            !!fixed.edit && fixed.edit.longPress.enabled === true && fixed.edit.longPress.ms === 500,
+          ok('应用一次之后老面板被补齐：edit.tripleClick 进来了',
+            !!fixed.edit && fixed.edit.tripleClick.enabled === true && fixed.edit.tripleClick.ms === 250,
             JSON.stringify(fixed.edit));
           ok('补齐时没把他原来的设置冲掉（球大小还是原来那个）',
             fixed.ball.size === oldCfg.ball.size, `${oldCfg.ball.size} → ${fixed.ball.size}`);
-          ok('补齐后长按能力标记也在（脚本里那份是新代码）',
+          ok('补齐后改正文的能力标记也在（脚本里那份是新代码）',
             PE.panelSupport(PE.panelScriptViews(state.edit, preset().json, preset().model)[0].content).ours === true);
 
           state.view = 'export';

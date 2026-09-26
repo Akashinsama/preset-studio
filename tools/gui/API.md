@@ -201,7 +201,7 @@ const PP = globalThis.PresetParse;
 | `MARKER_SLOTS` | **8** 个：`worldInfoBefore, worldInfoAfter, charDescription, charPersonality, personaDescription, scenario, dialogueExamples, chatHistory`（**不含** `main`/`nsfw`/`jailbreak`/`enhanceDefinitions`） |
 | `REGEX_FIELD_LABEL` | `{ scriptName: '名字', findRegex: 'find 表达式', replaceString: '替换为', disabled: '启停', placement: '作用面', markdownOnly: '仅改显示', promptOnly: '仅改发送' }`（也是 `setRegexField` 的合法字段集） |
 | `PANEL_MARKS` | `['FANO_PANEL_CONFIG_BEGIN', '__FANO_PANEL__']` |
-| `PANEL_CAP_MARKS` | 面板"会什么"的**能力标记**：`{ longPressEdit: 'FANO_PANEL_CAP_LONGPRESS_EDIT', controlsV06: 'FANO_PANEL_CAP_CONTROLS_V06' }`。`panelSupport()` 靠它们判断"预设里那份面板是不是旧版"：缺哪个说哪个，两块都缺就两条拦截（导出前拦住 + 一键换新 + 一条"就带旧的"活路） |
+| `PANEL_CAP_MARKS` | 面板"会什么"的**能力标记**：`{ longPressEdit: 'FANO_PANEL_CAP_LONGPRESS_EDIT', tripleClick: 'FANO_PANEL_CAP_TRIPLE_CLICK', controlsV06: 'FANO_PANEL_CAP_CONTROLS_V06' }`。`panelSupport()` 靠它们判断"预设里那份面板是不是旧版"：缺哪个说哪个，全缺就三条拦截（导出前拦住 + 一键换新 + 一条"就带旧的"活路）。**加新标记时要连着改三处**：面板源码里声明、这里登记、`ui.js` 的 `CAP_LABEL` 加一句人话 |
 | `PROSE_FIELDS` | `['identifier', 'content', 'role', 'system_prompt', 'injection_position', 'injection_depth', 'injection_order', 'marker', 'forbid_overrides']` |
 
 ### 2.5 `PresetSkeleton`（10 个：4 函数 + 6 值）
@@ -818,7 +818,7 @@ verifySourceIntact(json, edit, model, fingerprintFn) // → { checked, changed, 
 | --- | --- | --- |
 | `node tools/test-gui.mjs` | M0 解析 / M1 拼装（含人造小预设的 setvar/getvar/addvar 时序语义）、M2 体检的**每个不变式都造一个反例**、M3 编辑器的空编辑逐字节等价与来源 sha1 自证、M4 骨架、正则编辑、脚本编辑、面板外观端到端、分组推断、EJS 识别、`PresetBuildOps` 三层操作 | 通过 353 项 |
 | `node tools/test-panelconfig.mjs` | `panelconfig.js` 的 `clampConfig()` 与**真加载的面板** `__FANO_PANEL__.config().effective` 逐字段比对（防漂移）、配置块抠取/回写只动一段、壁纸图层、缩放、20 个 token 都有中文说明且都真被用到、`GROUPS_OVERRIDE` 读写与面板真的照它渲染、"装进预设"导出的脚本真能跑起来 | 通过 101 项 |
-| `node tools/test-panel.mjs` | `panel/fano-panel.js` 的面板逻辑（假 DOM 真加载）：手风琴、破甲骨架与档位、档位不被切换清掉、角色名替换、滚动位置、每次操作只写回一次、长按条目改正文（含取消/吞点击/注入位标记只读） | 通过 155 项 |
+| `node tools/test-panel.mjs` | `panel/fano-panel.js` 的面板逻辑（假 DOM 真加载）：手风琴、破甲骨架与档位、档位不被切换清掉、角色名替换、滚动位置、每次操作只写回一次、三击条目改正文（含"两下不算三击"与推迟窗口/注入位标记只读）、隐藏按钮/壁纸开关/小方案三击改名与长按删除 | 通过 187 项 |
 | `node tools/check-preset.mjs` | **成品预设的权威校验**：结构、**来源提示词一字未改（sha1 硬约束）**、新增条目范围、内置槽位唯一性与锚点、面板兼容性、破甲初始状态、扩展（面板与正则）、思维链标签互斥 | 通过 108 项 |
 | `node tools/test-regex.mjs` | `preset/fano-thinking-chain.json` 的折叠链：1 块 → Izumi 形态、≥2 块 → Kemini 形态、标签/无块/混杂场景 | 通过 30 项 |
 | `node tools/test-mobile.mjs` | 手机场景（390×844 视口、桌面遗留坐标）：尺寸/坐标夹回视口、旋转后重夹、`diagnose()` 能报出挂错层 | 通过 20 项 |

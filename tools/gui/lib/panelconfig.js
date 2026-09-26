@@ -70,7 +70,7 @@
     /* 顶部脚本按钮：名字要与预设里静态声明的两个一致（tools/build-preset.mjs 读这里）。 */
     button: { enabled: true, panel: '🙈 隐藏', antitrunc: '🛡 防截断' },
     /* 长按条目改正文：按住多少毫秒算长按（enabled=false 就关掉这个手势）。 */
-    edit: { longPress: { enabled: true, ms: 500 } },
+    edit: { tripleClick: { enabled: true, ms: 250 } },
   };
 
   /* ── 从源码里把那段对象字面量抠出来 ───────────────────────────── */
@@ -390,6 +390,13 @@
 
   function clampConfig(cfg) {
     const c = mergeConfig(DEFAULT_CONFIG, cfg);
+    /* 兼容老 CONFIG（`edit.longPress`）**必须看原始入参**，不能看合并后的 c：
+       mergeConfig 会把 DEFAULT_CONFIG 里的 tripleClick 补上，于是 `??` 永远轮不到老键，
+       "用户把改正文关掉了"就丢了。（面板那边读的是**未合并**的 CONFIG，所以它没这个问题。） */
+    const rawEdit = (cfg && cfg.edit && typeof cfg.edit === 'object') ? cfg.edit : {};
+    const rawNew = (rawEdit.tripleClick && typeof rawEdit.tripleClick === 'object') ? rawEdit.tripleClick : null;
+    const rawOld = (rawEdit.longPress && typeof rawEdit.longPress === 'object') ? rawEdit.longPress : {};
+    const editSrc = rawNew || rawOld;
     return {
       ball: {
         size: Math.round(num(c.ball.size, 46, 28, 96)),
@@ -439,12 +446,16 @@
         panel: String(c.button?.panel ?? '🙈 隐藏').trim() || '🙈 隐藏',
         antitrunc: String(c.button?.antitrunc ?? '🛡 防截断').trim() || '🛡 防截断',
       },
-      /* 长按改正文的手势。同样：只认显式 false。毫秒夹在 250–1500，
-         写个 0 或负数会落到 250——想关掉请用 enabled:false（面板上"长按"整段都会消失）。 */
+      /* 三击改正文的手势。与面板 `CFG.edit` **同序同形**（那个逐字段比对测试会盯着）。
+         同样只认显式 false；毫秒夹在 250–1500——它同时是"单击最多等多久"，
+         所以下限就是 250（再小就来不及点三下）。
+         兼容：老 CONFIG 里那个键叫 `longPress`，**只**继承它的 enabled（"用户关掉了"要尊重），
+         **不继承 ms**——旧的 500 是"按住多久"，与三击窗口不是同一个量。 */
       edit: {
-        longPress: {
-          enabled: c.edit?.longPress?.enabled !== false,
-          ms: Math.round(num(c.edit?.longPress?.ms, 500, 250, 1500)),
+        tripleClick: {
+          enabled: editSrc.enabled !== false,
+          /* ms 只认新键：老键那个 500 是"按住多久"，与三击窗口不是同一个量 */
+          ms: Math.round(num(rawNew ? rawNew.ms : undefined, 250, 250, 1500)),
         },
       },
     };

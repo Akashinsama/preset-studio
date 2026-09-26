@@ -1496,7 +1496,7 @@ console.log('\n[19] 面板搭建：三层结构的增删改与导出形状');
   }
 }
 
-/* ── 20. 面板能力守卫：导出的预设里那份面板会不会"长按条目改正文" ── */
+/* ── 20. 面板能力守卫：导出的预设里那份面板能不能"三击条目改正文" ── */
 console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活路），别人的面板只提醒');
 {
   const PEg = globalThis.PresetEditor;
@@ -1514,7 +1514,7 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
     PEg.panelSupport(OLD_PANEL).ours === true && PEg.panelSupport(OLD_PANEL).missing.join() === 'longPressEdit',
     JSON.stringify(PEg.panelSupport(OLD_PANEL)));
 
-  /* 0.6.0 起有**第二个**能力标记（顶部隐藏按钮 / 壁纸开关 + 纯色底 / 小方案长按改名）。
+  /* 0.6.0 起有**第二个**能力标记（顶部隐藏按钮 / 壁纸开关 + 纯色底 / 小方案改名）。
      两个标记各自独立：抽掉一个不该影响另一个。 */
   const capKey2 = PEg.PANEL_CAP_MARKS.controlsV06;
   ok('新版面板里两个能力标记都在',
@@ -1553,11 +1553,11 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
   const checks = (panel) => PEg.exportChecks(base, e, m, { anchorIds: ANCHORS, panel });
   const kinds = (c) => [...c.blocking, ...c.warnings].map((x) => x.kind).join('｜');
   ok('新版面板：不拦、也不提面板能力',
-    !checks({ groups: 0, appearance: false }).blocking.some((b) => /长按/.test(b.kind)),
+    !checks({ groups: 0, appearance: false }).blocking.some((b) => /改正文|旧版/.test(b.kind)),
     kinds(checks({ groups: 0, appearance: false })));
   PEg.setScriptField(e, base, view.ref, 'content', view.content.replace(capKey, 'FANO_PANEL_CAP_RETIRED'));
   ok('旧面板 → 拦住导出，并点名原因',
-    checks({ groups: 0, appearance: false }).blocking.some((b) => b.kind === '面板是旧版：不能长按改正文'),
+    checks({ groups: 0, appearance: false }).blocking.some((b) => b.kind === '面板是旧版：不能三击改正文'),
     kinds(checks({ groups: 0, appearance: false })));
   /* 缺的是 0.6.0 那批能力 → 另一条拦截、另一句人话 */
   PEg.setScriptField(e, base, view.ref, 'content', view.content.replace(capKey2, 'FANO_PANEL_CAP_RETIRED'));
@@ -1565,13 +1565,15 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
     checks({ groups: 0, appearance: false }).blocking
       .some((b) => b.kind === '面板是旧版：没有隐藏按钮 / 壁纸开关 / 小方案改名'),
     kinds(checks({ groups: 0, appearance: false })));
-  /* 两块都缺 → 两条拦截；但"就带这个旧面板导出"说一次就够，别问两遍 */
-  PEg.setScriptField(e, base, view.ref, 'content',
-    view.content.replace(capKey, 'FANO_PANEL_CAP_RETIRED').replace(capKey2, 'FANO_PANEL_CAP_RETIRED'));
-  ok('两块能力都缺 → 两条拦截（各说各的）',
-    checks({ groups: 0, appearance: false }).blocking.filter((b) => /面板是旧版/.test(b.kind)).length === 2,
+  /* 三块标记**全抽掉** → 三条拦截；但"就带这个旧面板导出"说一次就够，别问两遍。
+     这里按 PANEL_CAP_MARKS 全量抽，以后再加标记也不会漏（上一版就是漏了第三个）。 */
+  const retireAll = (src) => Object.values(PEg.PANEL_CAP_MARKS)
+    .reduce((acc, mk) => acc.split(mk).join('FANO_PANEL_CAP_RETIRED'), String(src));
+  PEg.setScriptField(e, base, view.ref, 'content', retireAll(view.content));
+  ok('三块能力全缺 → 三条拦截（各说各的）',
+    checks({ groups: 0, appearance: false }).blocking.filter((b) => /面板是旧版/.test(b.kind)).length === 3,
     kinds(checks({ groups: 0, appearance: false })));
-  ok('说一次"就带旧的" → 两条一起放行',
+  ok('说一次"就带旧的" → 三条一起放行',
     checks({ groups: 0, appearance: false, staleIgnored: true }).blocking.length === 0,
     kinds(checks({ groups: 0, appearance: false, staleIgnored: true })));
   PEg.setScriptField(e, base, view.ref, 'content', view.content.replace(capKey, 'FANO_PANEL_CAP_RETIRED'));
@@ -1590,7 +1592,8 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
 
   /* 20d. 老面板的 CONFIG 里**没有新键**：裸读会抛，补齐之后才安全。
      这正是"导入一份自带旧面板的预设 → 点「面板外观」整页崩"的那个坑
-     （真实报错：Cannot read properties of undefined (reading 'longPress')）。
+     （真实报错：Cannot read properties of undefined (reading 'longPress')——
+      那是 0.5.0–0.6.0 那版 CONFIG 的键名，0.7.0 起新键叫 tripleClick，报错会跟着变。）
      界面的读法在 ui.js 的 ensureAppearance()：一律 mergeConfig(DEFAULT_CONFIG, 读到的)。 */
   {
     const oldCfg = { ...PCg.extractConfig(OLD_PANEL) };
@@ -1598,15 +1601,15 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
     delete oldCfg.antitrunc;
     delete oldCfg.button;
     let threw = false;
-    try { void oldCfg.edit.longPress; } catch { threw = true; }
-    ok('反例：老 CONFIG 裸读 edit.longPress 会抛（这就是那个坑）', threw === true);
+    try { void oldCfg.edit.tripleClick; } catch { threw = true; }
+    ok('反例：老 CONFIG 裸读 edit.tripleClick 会抛（这就是那个坑）', threw === true);
 
     const merged = PCg.mergeConfig(PCg.DEFAULT_CONFIG, oldCfg);
     ok('按出厂形状补齐：DEFAULT_CONFIG 里每个键都在（界面直接取字段才安全）',
       Object.keys(PCg.DEFAULT_CONFIG).every((k) => merged[k] !== undefined),
       Object.keys(PCg.DEFAULT_CONFIG).filter((k) => merged[k] === undefined).join('、') || '全都在');
-    ok('补齐后 edit.longPress 拿到默认值（500ms / 开）',
-      merged.edit.longPress.enabled === true && merged.edit.longPress.ms === 500,
+    ok('补齐后 edit.tripleClick 拿到默认值（250ms / 开）',
+      merged.edit.tripleClick.enabled === true && merged.edit.tripleClick.ms === 250,
       JSON.stringify(merged.edit));
     ok('补齐不会拿默认值盖掉他原来的设置',
       merged.title === oldCfg.title && merged.ball.size === oldCfg.ball.size
@@ -1618,7 +1621,7 @@ console.log('\n[20] 面板能力：旧面板拦住导出（有一键补救与活
       })());
     /* 半截配置（只有 enabled、没写 ms）也要出得来值，否则界面上显示 undefined */
     ok('半截 edit 配置也显示得出毫秒（走 clampConfig）',
-      PCg.clampConfig(PCg.mergeConfig(PCg.DEFAULT_CONFIG, { edit: { longPress: { enabled: false } } })).edit.longPress.ms === 500);
+      PCg.clampConfig(PCg.mergeConfig(PCg.DEFAULT_CONFIG, { edit: { tripleClick: { enabled: false } } })).edit.tripleClick.ms === 250);
   }
 
   /* 20e. 面板"没有自带分组"这一类输入（另一支面板 / 适配副本）。

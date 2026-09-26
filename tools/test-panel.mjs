@@ -185,6 +185,12 @@ win.updatePresetWith = async (...args) => { writes++; return rawWrite(...args); 
 
 load(fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8'), win, dom.document, localStorage);
 
+/* 三击手势要**等一个窗口**单击才生效（见面板里的 rowClicks：不等就分不清第 2、3 下）。
+   凡是"点一下然后马上断言"的地方，都得先 await 这一个。 */
+const settleClick = async () => {
+  await new Promise((r) => setTimeout(r, win.__FANO_PANEL__.config().effective.edit.tripleClick.ms + 40));
+};
+
 /* ── 断言 ───────────────────────────────────────────────────────── */
 let pass = 0;
 const fails = [];
@@ -267,7 +273,7 @@ ok('芳乃三条都渲染成开关', fanoSw.length === (fanoGroup?.members.lengt
 ok('芳乃条目默认关闭', enabledSet().has(fanoGroup.members[0]) === false, fanoGroup.members[0]);
 const bFano = writes;
 switchesIn('fano')[0].dispatchEvent('click');
-await tick(); await tick();
+await settleClick();
 ok('打开芳乃主体层写回 1 次', writes - bFano === 1, `实际 ${writes - bFano}`);
 ok('芳乃主体层真的被打开', enabledSet().has(fanoGroup.members[0]));
 
@@ -533,7 +539,7 @@ await expand('guard');
 const sw = switchesIn('guard')[0];
 b = writes;
 sw.dispatchEvent('click');
-await tick(); await tick();
+await settleClick();        // 三击手势：单击要等一个窗口才生效
 ok('写回 1 次', writes - b === 1, `实际 ${writes - b}`);
 ok('重渲染后 scrollTop 保持', bodyEl().scrollTop === 321, `实际 ${bodyEl().scrollTop}`);
 
@@ -679,114 +685,101 @@ console.log('\n[13] 脚本层防截断：开关真的装/卸，正文真的从�
   clickButton('🛡 防截断');   /* 复位：别把开关状态留给后面的用例 */
 }
 
-console.log('\n[14] 长按条目 → 改这一条的正文');
+console.log('\n[14] 三击条目 → 改这一条的正文');
 {
   const api = win.__FANO_PANEL__;
-  const ms = api.config().effective.edit.longPress.ms;
+  const ms = api.config().effective.edit.tripleClick.ms;
   const sleep = (n) => new Promise((r) => setTimeout(r, n));
-  const pev = (node, type, x = 10, y = 10) => node.dispatchEvent(type, {
-    clientX: x, clientY: y, button: 0, target: node, preventDefault() {}, stopPropagation() {},
-  });
+  const click = (node) => node.dispatchEvent('click');
   const maskNow = () => dom.document.getElementById('fano-preset-panel-v1-edit');
   const taIn = (node) => (node ? walk(node).find((n) => n.tagName === 'TEXTAREA') : null);
   const miniIn = (node, label) => walk(node).find((n) => n.className === 'fp-mini' && n.textContent === label);
 
-  ok('面板报出了长按能力（编辑器导出前检查认它）',
+  ok('面板报出了改正文的能力（编辑器导出前检查认它）',
     typeof api.caps === 'function' && api.caps().longPressEdit === true, JSON.stringify(api.caps && api.caps()));
-  ok('长按毫秒数来自配置', ms === 500, String(ms));
+  ok('三击窗口来自配置', ms === 250, String(ms));
 
-  /* ── 多选开关排：每一行都能长按 ── */
+  /* ── 多选开关排：每一行都能三击 ── */
   await expand('guard');
   const guardG = groups.find((g) => g.id === 'guard');
   const name = guardG.members.find((m) => find0(m));
   const rowOf = (n) => switchesIn('guard').find((x) => x.children[0] && x.children[0].textContent === n);
   const wasOn = enabledSet().has(name);
 
-  pev(rowOf(name), 'pointerdown');
-  pev(rowOf(name), 'pointerup');
-  rowOf(name).dispatchEvent('click');
-  await tick(); await tick();
-  ok('短按仍然是"开关这一条"（点一下的语义没被长按抢掉）', enabledSet().has(name) !== wasOn,
+  /* 点一下：**不当场生效**，要等一个窗口——这是"分得清三击"必须付的代价 */
+  click(rowOf(name));
+  ok('点一下不当场生效（先等一个窗口，看后面还有没有第 2、3 下）', enabledSet().has(name) === wasOn,
     `${wasOn} → ${enabledSet().has(name)}`);
-  ok('短按不会打开编辑器', !maskNow());
+  await sleep(ms + 40);
+  ok('窗口过去才切：点一下仍然是"开关这一条"', enabledSet().has(name) !== wasOn,
+    `${wasOn} → ${enabledSet().has(name)}`);
+  ok('点一下不会打开编辑器', !maskNow());
 
-  const row2 = rowOf(name);
-  pev(row2, 'pointerdown');
-  await sleep(ms + 80);
+  /* 两下：不算三击，按"点一下"处理（只切一次，不会切两次） */
+  const rowTwo = rowOf(name);
+  const onBeforeTwo = enabledSet().has(name);
+  click(rowTwo); click(rowTwo);
+  await sleep(ms + 40);
+  ok('两下不算三击，只当点一下（切一次，不是两次）', enabledSet().has(name) !== onBeforeTwo
+    && enabledSet().has(name) === !onBeforeTwo, `${onBeforeTwo} → ${enabledSet().has(name)}`);
+  ok('两下也不打开编辑器', !maskNow());
+
+  /* 三击：连点三下 → 打开编辑器；**顺手的那两下不会开关这一条** */
+  const row3 = rowOf(name);
+  const onBeforeTriple = enabledSet().has(name);
+  click(row3); click(row3); click(row3);
   const mask = maskNow();
-  ok('长按打开正文编辑器', !!mask, mask ? '' : '没出现浮层');
+  ok('三击打开正文编辑器', !!mask, mask ? '' : '没出现浮层');
   ok('编辑器里放的就是这一条的正文（字数对得上）',
     !!taIn(mask) && taIn(mask).value === contentOf(name), taIn(mask) ? `${taIn(mask).value.length} 字` : '没有输入框');
-  pev(row2, 'pointerup');
-
-  /* 长按之后紧跟的那次 click：浏览器可能把它派发到**已经摘下来的旧节点**上，
-     行里的守卫必须把它吞掉，否则长按一下就顺手把这一条开关掉。 */
-  const onAfterHold = enabledSet().has(name);
-  row2.dispatchEvent('click');            // row2 就是那次重渲染里被摘下来的旧节点
-  await tick(); await tick();
-  ok('长按后紧跟的那次点击被吞掉（没有顺手开关这一条）', enabledSet().has(name) === onAfterHold,
-    `${onAfterHold} → ${enabledSet().has(name)}`);
-  pev(rowOf(name), 'pointerdown');
-  rowOf(name).dispatchEvent('click');
-  pev(rowOf(name), 'pointerup');
-  await tick(); await tick();
-  ok('只吞一次：下一次点击照常开关', enabledSet().has(name) !== onAfterHold);
+  await sleep(ms + 40);
+  ok('三击没有顺手开关这一条（前两下被丢掉）', enabledSet().has(name) === onBeforeTriple,
+    `${onBeforeTriple} → ${enabledSet().has(name)}`);
 
   /* ── 保存：只写回一次，正文真的进预设，浮层收起 ── */
   const box = maskNow();
   const ta = taIn(box);
   const w0 = writes;
-  ta.value = ta.value + '\n（长按补的一行）';
+  ta.value = ta.value + '\n（三击补的一行）';
   miniIn(box, '保存').dispatchEvent('click');
   await tick(); await tick();
   ok('保存只写回一次预设', writes - w0 === 1, `实际 ${writes - w0}`);
   ok('正文真的进了预设', contentOf(name) === ta.value, `${contentOf(name).length} 字`);
   ok('保存后浮层自己收起', !maskNow());
 
-  /* ── 按住期间移动 = 在滚动，不是长按 ── */
-  const row3 = rowOf(name);
-  pev(row3, 'pointerdown', 10, 10);
-  pev(row3, 'pointermove', 46, 10);        // 挪了 36px
-  await sleep(ms + 80);
-  ok('按住期间移动超过 8px 就取消（手机上那是滚动）', !maskNow());
-  pev(row3, 'pointerup');
-
-  /* ── 单选组：下拉框挂不上长按，它的条目行在下拉框下面 ── */
+  /* ── 单选组：下拉框是原生控件，它的条目行在下拉框下面 ── */
   const sg = groups.find((g) => g.mode === 'single' && g.members.some((m) => enabledSet().has(m) && find0(m)));
   await expand(sg.id);
   const srow = switchesIn(sg.id)[0];
   const curName = sg.members.find((m) => enabledSet().has(m) && find0(m));
-  ok('单选组里也有可长按的"当前条目"行', !!srow && srow.children[0].textContent === curName,
+  ok('单选组里也有可三击的"当前条目"行', !!srow && srow.children[0].textContent === curName,
     srow ? srow.children[0].textContent : '没有这一行');
   if (srow) {
-    pev(srow, 'pointerdown');
-    await sleep(ms + 80);
+    click(srow); click(srow); click(srow);
     const smask = maskNow();
-    ok('长按它打开的就是当前选中那一条', !!taIn(smask) && taIn(smask).value === contentOf(curName),
+    ok('三击它打开的就是当前选中那一条', !!taIn(smask) && taIn(smask).value === contentOf(curName),
       `${curName}`);
-    pev(srow, 'pointerup');
     api.closeEditor();
     await tick();
   }
 
-  /* ── 只读区（注入位标记）：能长按打开，但只给看 ── */
+  /* ── 只读区（注入位标记）：能三击打开，但只给看 ── */
   await expand('anchors');
   const markerName = groups.find((g) => g.id === 'anchors').members.find((m) => find0(m) && find0(m).marker === true);
   const mrow = switchesIn('anchors').find((x) => x.children[0].textContent === markerName);
-  pev(mrow, 'pointerdown');
-  await sleep(ms + 80);
+  click(mrow); click(mrow); click(mrow);
   const mmask = maskNow();
-  ok('注入位标记也能长按打开', !!mmask && taIn(mmask).value === contentOf(markerName), String(markerName));
+  ok('注入位标记也能三击打开', !!mmask && taIn(mmask).value === contentOf(markerName), String(markerName));
   ok('但只给看：输入框只读、没有保存按钮',
     !!taIn(mmask) && taIn(mmask).readOnly === true && !miniIn(mmask, '保存'));
   api.closeEditor();
   await tick();
   ok('closeEditor() 能收起浮层', !maskNow());
-  ok('只读区的那一行也在（名字可长按）', switchesIn('anchors').length === groups.find((g) => g.id === 'anchors').members.length,
+  ok('只读区的那一行也在', switchesIn('anchors').length === groups.find((g) => g.id === 'anchors').members.length,
     `${switchesIn('anchors').length} 行`);
 }
 
-console.log('\n[15] 顶部按钮=整块隐藏 / 壁纸开关+纯色 / 小方案长按改名');
+console.log('\n[15] 顶部按钮=整块隐藏 / 壁纸开关+纯色 / 小方案三击改名');
 {
   const api = win.__FANO_PANEL__;
   const sleep = (n) => new Promise((r) => setTimeout(r, n));
@@ -810,11 +803,8 @@ console.log('\n[15] 顶部按钮=整块隐藏 / 壁纸开关+纯色 / 小方案�
   ok('再点一下：面板回来了（窗口仍是开着的，不然叫回来也看不见）',
     api.isHidden() === false && rootEl().dataset.hidden === '0' && api.isHidden() === false);
 
-  /* ── 15b. 小方案：长按 chip 就地改名 ── */
+  /* ── 15b. 小方案：三击 chip 就地改名 ── */
   const chipByText = (t) => walk(rootEl()).find((n) => n.className === 'fp-chip' && n.textContent === t);
-  const pev = (node, type) => node.dispatchEvent(type, {
-    clientX: 10, clientY: 10, button: 0, target: node, preventDefault() {}, stopPropagation() {},
-  });
   const saveChip = chipByText('＋存为小方案');
   ok('脚注里有「＋存为小方案」', !!saveChip);
   saveChip.dispatchEvent('click');
@@ -824,11 +814,10 @@ console.log('\n[15] 顶部按钮=整块隐藏 / 壁纸开关+纯色 / 小方案�
 
   const chipOf = (id) => walk(rootEl()).find((n) => n.className === 'fp-chip' && n.dataset && n.dataset.plan === id);
   const chip = chipOf(ps[0].id);
-  ok('方案 chip 上挂着 id（长按改名靠它认人）', !!chip);
-  pev(chip, 'pointerdown');
-  await sleep(api.config().effective.edit.longPress.ms + 80);
+  ok('方案 chip 上挂着 id（三击改名靠它认人）', !!chip);
+  chip.dispatchEvent('click'); chip.dispatchEvent('click'); chip.dispatchEvent('click');
   const input = walk(chip).find((n) => n.tagName === 'INPUT');
-  ok('长按 chip → 就地出现改名输入框（预填原名）', !!input && input.value === ps[0].name,
+  ok('三击 chip → 就地出现改名输入框（预填原名）', !!input && input.value === ps[0].name,
     input ? JSON.stringify(input.value) : '没有输入框');
   input.value = '我的摸鱼方案';
   input.dispatchEvent('keydown', { key: 'Enter', preventDefault() {} });
@@ -838,6 +827,23 @@ console.log('\n[15] 顶部按钮=整块隐藏 / 壁纸开关+纯色 / 小方案�
   ok('改名之后 chip 上显示的是新名字', !!chipByText('我的摸鱼方案'));
   ok('程序化入口 renamePlan 也能改',
     api.renamePlan(ps[0].id, '方案·二') === true && api.plans()[0].name === '方案·二');
+
+  /* ── 15b-2. 长按 chip = **删除**（手机上点不出右键，这是那条出口） ── */
+  {
+    const pev = (node, type, x = 10, y = 10) => node.dispatchEvent(type, {
+      clientX: x, clientY: y, button: 0, target: node, preventDefault() {}, stopPropagation() {},
+    });
+    const victim = chipOf(api.plans()[0].id);
+    const wBefore = writes;
+    pev(victim, 'pointerdown');
+    await new Promise((r) => setTimeout(r, 760));
+    ok('长按 chip → 这个方案被删掉', api.plans().length === 0, JSON.stringify(api.plans()));
+    pev(victim, 'pointerup');
+    victim.dispatchEvent('click');          // 松手跟来的那次 click（派发在已摘下的旧节点上）
+    await tick();
+    ok('长按之后紧跟的那次 click 被丢掉（没顺手应用一次、没多写回一次）', writes === wBefore,
+      `写回 ${wBefore} → ${writes}`);
+  }
 
   /* ── 15c. 壁纸开关 + 纯色背景 ──
      这两个控件只在**配了壁纸**时才长出来，所以另起一套壳、把壁纸塞进 CONFIG 再加载一遍

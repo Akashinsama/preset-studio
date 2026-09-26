@@ -244,26 +244,33 @@ console.log('[1] 配置块的抠取与回写');
     return JSON.stringify(once) === JSON.stringify(twice) && twice.antitrunc.enabled === false;
   })());
 
-  /* 长按条目改正文：同样的"成对"要求（DEFAULT_CONFIG 与 clampConfig 各一份，少一边就丢） */
-  ok('默认配置里有 edit（长按改正文）',
-    !!PC.DEFAULT_CONFIG.edit && PC.DEFAULT_CONFIG.edit.longPress.enabled === true
-    && PC.DEFAULT_CONFIG.edit.longPress.ms === 500,
+  /* 三击条目改正文：同样的"成对"要求（DEFAULT_CONFIG 与 clampConfig 各一份，少一边就丢） */
+  ok('默认配置里有 edit（三击改正文）',
+    !!PC.DEFAULT_CONFIG.edit && PC.DEFAULT_CONFIG.edit.tripleClick.enabled === true
+    && PC.DEFAULT_CONFIG.edit.tripleClick.ms === 250,
     JSON.stringify(PC.DEFAULT_CONFIG.edit));
   ok('面板源码里那份出厂值也一样', (() => {
     const e = PC.extractConfig(PANEL_SRC).edit;
-    return !!e && e.longPress.enabled === true && e.longPress.ms === 500;
+    return !!e && e.tripleClick.enabled === true && e.tripleClick.ms === 250;
   })(), JSON.stringify(PC.extractConfig(PANEL_SRC).edit));
-  ok('长按毫秒被夹在 250–1500',
-    PC.clampConfig({ edit: { longPress: { ms: 10 } } }).edit.longPress.ms === 250
-    && PC.clampConfig({ edit: { longPress: { ms: 99999 } } }).edit.longPress.ms === 1500,
-    `${PC.clampConfig({ edit: { longPress: { ms: 10 } } }).edit.longPress.ms} / ${PC.clampConfig({ edit: { longPress: { ms: 99999 } } }).edit.longPress.ms}`);
-  ok('夹取不把 edit.longPress.enabled 的显式 false 翻回 true',
-    PC.clampConfig({ edit: { longPress: { enabled: false } } }).edit.longPress.enabled === false);
-  ok('关掉长按后「回写→再读」值还在（外观页保存不丢字段）', (() => {
-    const off = PC.mergeConfig(cfg, { edit: { longPress: { enabled: false, ms: 800 } } });
+  ok('三击窗口被夹在 250–1500',
+    PC.clampConfig({ edit: { tripleClick: { ms: 10 } } }).edit.tripleClick.ms === 250
+    && PC.clampConfig({ edit: { tripleClick: { ms: 99999 } } }).edit.tripleClick.ms === 1500,
+    `${PC.clampConfig({ edit: { tripleClick: { ms: 10 } } }).edit.tripleClick.ms} / ${PC.clampConfig({ edit: { tripleClick: { ms: 99999 } } }).edit.tripleClick.ms}`);
+  ok('夹取不把 edit.tripleClick.enabled 的显式 false 翻回 true',
+    PC.clampConfig({ edit: { tripleClick: { enabled: false } } }).edit.tripleClick.enabled === false);
+  ok('关掉三击后「回写→再读」值还在（外观页保存不丢字段）', (() => {
+    const off = PC.mergeConfig(cfg, { edit: { tripleClick: { enabled: false, ms: 800 } } });
     const back = PC.extractConfig(PC.patchConfig(PANEL_SRC, off)).edit;
-    return back.longPress.enabled === false && back.longPress.ms === 800;
+    return back.tripleClick.enabled === false && back.tripleClick.ms === 800;
   })());
+  /* **兼容老预设**：0.5.0–0.6.0 写下的键叫 `longPress`。
+     只继承它的 enabled（"用户把改正文关掉了"要尊重），**不继承 ms**——
+     旧的 500 是"按住多久"，与三击窗口不是同一个量，照搬会让每次单击白等半秒。 */
+  ok('老 CONFIG 的 edit.longPress 只被继承 enabled，不继承 ms', (() => {
+    const l = PC.clampConfig({ edit: { longPress: { enabled: false, ms: 900 } } }).edit.tripleClick;
+    return l.enabled === false && l.ms === 250;
+  })(), JSON.stringify(PC.clampConfig({ edit: { longPress: { enabled: false, ms: 900 } } }).edit));
   ok('标题里的特殊字符不会把配置块写坏', (() => {
     const weird = '引号"\\换行\n中文🎋';
     const out = PC.patchConfig(PANEL_SRC, PC.mergeConfig(cfg, { title: weird }));
@@ -315,11 +322,11 @@ console.log('\n[2] 夹取逻辑：lib 与面板逐字段一致（防漂移）');
   ok('默认出厂开着 + 宿主有 fetch：启动就真装上了',
     onBoot.win.__FANO_ANTITRUNC__.isEnabled() === true && onBoot.win.__FANO_ANTITRUNC__.installed() === true);
 
-  /* 长按改正文：出厂关掉时，面板自己就该说"没有这个能力"（编辑器导出前检查认这个） */
-  const noHold = await boot({ edit: { longPress: { enabled: false } } });
-  ok('出厂关掉长按 → caps().longPressEdit 是 false',
+  /* 三击改正文：出厂关掉时，面板自己就该说"没有这个能力"（编辑器导出前检查认这个） */
+  const noHold = await boot({ edit: { tripleClick: { enabled: false } } });
+  ok('出厂关掉三击 → caps().longPressEdit 是 false',
     noHold.win.__FANO_PANEL__.caps().longPressEdit === false, JSON.stringify(noHold.win.__FANO_PANEL__.caps()));
-  const hold = await boot({ edit: { longPress: { enabled: true, ms: 800 } } });
+  const hold = await boot({ edit: { tripleClick: { enabled: true, ms: 800 } } });
   ok('开着的话 caps() 报出能力，毫秒数跟着配置走',
     hold.win.__FANO_PANEL__.caps().longPressEdit === true && hold.win.__FANO_PANEL__.caps().longPressMs === 800,
     JSON.stringify(hold.win.__FANO_PANEL__.caps()));

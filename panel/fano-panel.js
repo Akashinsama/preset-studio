@@ -652,7 +652,7 @@
   const EDITABLE = ((GROUPS.find((g) => g.mode === 'editable') || {}).editable) || {};
 
   const ID = 'fano-preset-panel-v1';
-  const VERSION = '0.6.0';
+  const VERSION = '0.7.0';
   const LS = {
     open: ID + '_open_v1',
     night: ID + '_night_v1',
@@ -807,10 +807,11 @@
        tools/build-preset.mjs 写 button.buttons 时读的正是这里，改完重新构建即可。
        enabled=false = 不声明也不接线（那份预设不带顶部按钮）。 */
     button: { enabled: true, panel: '🙈 隐藏', antitrunc: '🛡 防截断' },
-    /* 长按条目改正文：按住 longPress.ms 毫秒，就打开那一条的正文编辑器。
-       enabled=false 就关掉这个手势（面板上不会提"长按"两个字）。
+    /* 三击条目改正文：连点三下（每两下之间不超过 tripleClick.ms）就打开那一条的正文编辑器。
+       enabled=false 就关掉这个手势（面板上不会提"三击"两个字）。
+       ms 同时是**单击最多等多久**——三击的前两下也是 click，不等就分不清（见 rowClicks）。
        改的是**预设里那一条的正文**，保存时和其它操作一样只写回一次。 */
-    edit: { longPress: { enabled: true, ms: 500 } },
+    edit: { tripleClick: { enabled: true, ms: 250 } },
   };
   /* ══ FANO_PANEL_CONFIG_END ════════════════════════════════════════════ */
 
@@ -903,9 +904,12 @@
       antitrunc: String(CONFIG?.button?.antitrunc ?? '🛡 防截断').trim() || '🛡 防截断',
     },
     edit: {
-      longPress: {
-        enabled: CONFIG?.edit?.longPress?.enabled !== false,
-        ms: Math.round(num(CONFIG?.edit?.longPress?.ms, 500, 250, 1500)),
+      /* 兼容老面板写下的 CONFIG：**只**从 `longPress` 继承 enabled（"用户把它关掉了"这件事要尊重），
+         **不继承 ms**——旧的 500 是"按住多久"，与"三击窗口"不是同一个量，
+         照搬过来会让每次单击都白等半秒。 */
+      tripleClick: {
+        enabled: (CONFIG?.edit?.tripleClick ?? CONFIG?.edit?.longPress)?.enabled !== false,
+        ms: Math.round(num(CONFIG?.edit?.tripleClick?.ms, 250, 250, 1500)),
       },
     },
   };
@@ -1340,37 +1344,43 @@
     apply([{ name, enabled }], (enabled ? '已开 ' : '已关 ') + name);
   }
 
-  /* ══ 长按条目 → 改这一条的正文 ══════════════════════════════════════
+  /* ══ 三击条目 → 改这一条的正文 ══════════════════════════════════════
      为什么要有这个：面板上大多数条目只有一个开关/下拉，正文看不到也改不了；
      想看某一条写了什么、顺手改两句，原来只能去酒馆的预设编辑器里翻。
 
-     手势规则（都写在 CONFIG.edit.longPress 里，enabled=false 就整个关掉）：
-       · 按住 ms 毫秒算长按；
-       · 期间指针移动超过 8px 就取消——手机上那是"在滚动"，不是"在长按"；
-       · 长按触发后，松手跟来的那次 click **会被吞掉**，否则会顺手把这一条开关掉；
-       · 触发时那一行高亮一下，手机支持震动就轻震一下（反馈，不是效果）。
+     手势规则（都写在 CONFIG.edit.tripleClick 里，enabled=false 就整个关掉）：
+       · **连点三下**（每两下之间不超过 ms）算三击；
+       · 三击触发时**不执行**"点一下"那个动作——否则开关会被顺手切两下、小方案被应用两次；
+       · 所以单击要**等 ms 毫秒**才生效（等多看两眼后面还有没有第 2、3 下）；
+       · 触发时手机支持震动就轻震一下（反馈，不是效果）。
      落在哪儿：
-       · 多选开关排 / 破甲档位 —— 每一行（.fp-sw）都能长按；
+       · 多选开关排 / 破甲档位 —— 每一行（.fp-sw）都能三击；
        · 单选下拉 —— 下拉本身是原生控件（一按就弹系统选择器），所以它下面那一行
-         "当前：<条目>" 就是它的条目行，长按它改当前这一条；
-       · 只读区（固定分组）—— 每个名字一个可长按的条目行；
+         "当前：<条目>" 就是它的条目行，三击它改当前这一条；
+       · 只读区（固定分组）—— 每个名字一个条目行；
        · 注入位标记（marker：聊天记录/角色卡/世界书这些位置标记）**只给看**，
          不给保存：它们的正文本来就该是空的，往里写东西会直接坏掉注入。 */
 
-  /** 能力标记：编辑器导出前检查靠这一行判断"这份面板脚本会不会长按改正文"。
-      改这段代码时**别删这一行**（删了编辑器就认不出来了）。 */
+  /** 能力标记：编辑器导出前检查靠这一行判断"这份面板脚本能不能改条目正文"。
+      改这段代码时**别删这一行**（删了编辑器就认不出来了）。
+      名字里的 LONGPRESS 是历史遗留（0.7.0 起手势改成三击了）：**故意不改名**——
+      改了会让已经装进各份预设里的面板全被判成"旧版"、导出时被拦住，
+      而它们只是手势旧、功能不旧。 */
   const CAP_LONGPRESS_EDIT = 'FANO_PANEL_CAP_LONGPRESS_EDIT';
 
-  /** 能力标记（0.6.0 起）：顶部按钮=整块隐藏 / 壁纸开关 + 纯色底 / 小方案长按改名。
+  /** 能力标记（0.6.0 起）：顶部按钮=整块隐藏 / 壁纸开关 + 纯色底 / 小方案改名。
       编辑器（`tools/gui`）靠**文本里有没有这一行**判断"这份预设里的面板是不是旧版"——
       老面板没有这些控件，装进酒馆就是"看着差不多、功能没有"，所以导出前要拦住并给一键换新。
       它只需要被**声明**出来（与 CAP_LONGPRESS_EDIT 同一个机制）。 */
   const CAP_CONTROLS_V06 = 'FANO_PANEL_CAP_CONTROLS_V06';
 
-  /** 长按期间指针允许的抖动（px）。超过就当成滚动/拖动，取消。 */
-  const HOLD_CANCEL_PX = 8;
-  /** 长按已经触发过：紧跟的那一次 click 要吞掉（见 bindGestureOnce 里的捕获监听）。 */
-  let swallowNextClick = false;
+  /** 能力标记（0.7.0 起）：改正文的手势是**三击**（而不是 0.5.0–0.6.0 那版的长按）。
+      为什么单独来一个：只加"能不能改正文"那一个标记是不够的——0.6.0 的面板**能**改正文，
+      但手势是长按；用户在界面上把配置改成三击之后，「应用到面板脚本」只换配置与分组两段、
+      **面板代码一行不动**（那是设计），于是导出的预设是"新配置 + 旧代码"，三击不会有反应，
+      而卡片还显示绿色、不给「换成新版面板」——人就被卡住了（真踩过）。
+      有这个标记，那种面板就会被判成旧版并给出一键换新。 */
+  const CAP_TRIPLE_CLICK = 'FANO_PANEL_CAP_TRIPLE_CLICK';
 
   /** 这一条是不是酒馆的注入位标记（正文必须为空，改了就坏）。 */
   const isMarker = (name) => {
@@ -1378,7 +1388,7 @@
     return !!(p && p.marker === true);
   };
 
-  /** 长按触发时的反馈：能震就轻震一下（拿不到就当没有，绝不抛）。 */
+  /** 手势触发时的反馈：能震就轻震一下（拿不到就当没有，绝不抛）。 */
   function buzz() {
     try {
       const nav = HOST.win.navigator || (typeof navigator !== 'undefined' ? navigator : null);
@@ -1409,39 +1419,79 @@
   }
 
   /**
-   * 把长按手势挂到某一行上。行里点一下该干嘛还干嘛（开关/选中），
-   * 只有"按住不动"才是长按动作——两件事不抢同一个手势。
+   * 把一个节点的"点一下"和"三击"接在一起——两者**互斥**，不会同时发生。
    *
-   * opts.onLongPress 不给就是默认动作（打开这一条的正文编辑器）；
-   * opts.force = true 时不受 `CONFIG.edit.longPress.enabled` 影响
-   * （那个开关管的是"长按条目改正文"，与小方案改名无关）。
+   * 规则（写在 `CONFIG.edit.tripleClick` 里；`enabled=false` 就整个关掉、退回"点一下马上生效"）：
+   *   · 点一下 → **等 ms 毫秒**；这期间没有更多点击，才执行 onClick；
+   *   · 三击（每两下之间不超过 ms）→ 执行 onTripleClick，**不**执行 onClick。
+   *
+   * 为什么单击必须推迟：三击的前两下也是 click。不推迟的话，开关会被顺手切两下、
+   * 小方案会被应用两次——而每一次都要写回一次预设。窗口就是 `ms`（默认 250ms；
+   * 它是"单击最多等多久"，不是"按住多久"）。
+   *
+   * `force = true` 时不受那个开关影响（小方案改名与条目正文是两个功能）。
+   *
+   * 状态为什么挂在闭包里而不是模块级：三击会触发重渲染，原来那一行已经从文档里摘下来了，
+   * 浏览器仍可能把后续 click 派发到那个**已摘下的节点**上——每个节点各持一份计数才不会串。
    */
-  function bindLongPress(node, name, opts = {}) {
-    const action = typeof opts.onLongPress === 'function' ? opts.onLongPress : () => openEntryEditor(name);
-    if (!opts.force && !CFG.edit.longPress.enabled) return;
-    if (!name || !node || typeof node.addEventListener !== 'function') return;
+  function rowClicks({ onClick, onTripleClick, force = false } = {}) {
+    let n = 0;
+    let timer = null;
+    let swallow = false;
+    const stop = () => { if (timer !== null) { clearTimeout(timer); timer = null; } };
+    const handler = (e) => {
+      /* 长按之类的**非点击手势**刚触发过：把它后面跟来的那次 click 作废掉，
+         否则"长按删除"松手时会顺手把这一条应用/开关一次。 */
+      if (swallow) {
+        swallow = false;
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        return;
+      }
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      /* 手势关掉了、或者这一行本来就没有三击动作 → 退回"点一下马上生效"（老行为） */
+      if ((!force && !CFG.edit.tripleClick.enabled) || typeof onTripleClick !== 'function') {
+        if (onClick) onClick(e);
+        return;
+      }
+      n++;
+      stop();
+      if (n >= 3) {
+        n = 0;
+        buzz();
+        onTripleClick(e);
+        return;
+      }
+      timer = setTimeout(() => {
+        timer = null;
+        n = 0;
+        if (onClick) onClick(e);
+      }, CFG.edit.tripleClick.ms);
+    };
+    /** 非点击手势（长按）触发时调一次：作废待兑现的单击，并吞掉紧跟的那次 click。 */
+    handler.cancelPending = () => { stop(); n = 0; swallow = true; };
+    return handler;
+  }
+
+  /** 长按期间指针允许的抖动（px）。超过就当成滚动/拖动，取消。 */
+  const HOLD_CANCEL_PX = 8;
+
+  /**
+   * 长按（按住 ms 毫秒不动）触发一次动作。用在**删除**这类"不能误触"的动作上：
+   * 小方案 chip 的长按删除。移动超过 8px 就取消——手机上那是"在滚动"。
+   * 注意它和 `rowClicks` 是两套手势：触发时要调 `handler.cancelPending()` 把点击那套作废。
+   */
+  function bindHold(node, ms, action) {
+    if (!node || typeof node.addEventListener !== 'function') return;
     let timer = null;
     let sx = 0;
     let sy = 0;
-    const cancel = () => {
-      if (timer !== null) { clearTimeout(timer); timer = null; }
-      try { node.classList.remove('fp-hold'); } catch { /* 忽略 */ }
-    };
+    const cancel = () => { if (timer !== null) { clearTimeout(timer); timer = null; } };
     node.addEventListener('pointerdown', (e) => {
       if (e && typeof e.button === 'number' && e.button !== 0) return;   // 只认左键/触摸
-      /* 下拉框自己要用这个手势（点一下就是选它），别抢 */
-      if (e && e.target && typeof e.target.closest === 'function' && e.target.closest('select')) return;
-      swallowNextClick = false;         // 上一次长按留下的"吞一次"不该跨到这一次
       sx = e ? e.clientX : 0;
       sy = e ? e.clientY : 0;
-      try { node.classList.add('fp-hold'); } catch { /* 忽略 */ }
-      timer = setTimeout(() => {
-        timer = null;
-        swallowNextClick = true;        // 松手跟来的那次 click 由 onRowClick 吞掉
-        try { node.classList.remove('fp-hold'); } catch { /* 忽略 */ }
-        buzz();
-        action();
-      }, CFG.edit.longPress.ms);
+      cancel();
+      timer = setTimeout(() => { timer = null; buzz(); action(); }, ms);
     });
     node.addEventListener('pointermove', (e) => {
       if (timer === null) return;
@@ -1450,25 +1500,6 @@
       if (dx + dy > HOLD_CANCEL_PX) cancel();
     });
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) node.addEventListener(ev, cancel);
-  }
-
-  /**
-   * 条目行的"点一下"统一走这里：长按刚开过编辑器的那一次点击会被吞掉。
-   *
-   * 为什么必须由**行**自己拦：长按会触发一次重渲染，原来那一行已经从文档里摘下来了，
-   * 而浏览器仍可能把随后的 click 派发到这个**已摘下的节点**上——那时行里"点一下开关"
-   * 照样会跑，于是长按一下就顺手把条目开关掉了，或者把刚打开的东西又切走。
-   * 文档级的捕获监听救不了（节点已不在文档树里），所以守卫必须在行内部。
-   */
-  function onRowClick(fn) {
-    return (e) => {
-      if (swallowNextClick) {
-        swallowNextClick = false;
-        if (e && typeof e.preventDefault === 'function') e.preventDefault();
-        return;
-      }
-      fn(e);
-    };
   }
 
   /** 一个可长按的条目行（名字 + 字数）：只读区、单选组的"当前条目"都用它。
@@ -1483,11 +1514,13 @@
     if (p) row.appendChild(el('i', '', sizeLabel(chars(p.content))));
     const foot = isMarker(name)
       ? '注入位标记：正文必须为空，只能看'
-      : (CFG.edit.longPress.enabled ? `长按改正文（按住 ${CFG.edit.longPress.ms}ms）` : '');
+      : (CFG.edit.tripleClick.enabled ? `三击改正文（每两下之间不超过 ${CFG.edit.tripleClick.ms}ms）` : '');
     row.title = (p ? `${LBL(name)}\n${chars(p.content)} 字` : `${LBL(name)}\n当前预设里没有这一条`)
       + (foot ? `\n${foot}` : '');
-    if (p) row.addEventListener('click', onRowClick(() => (opts.onPick ? opts.onPick(name) : openEntryEditor(name))));
-    bindLongPress(row, name);
+    if (p) row.addEventListener('click', rowClicks({
+      onClick: () => (opts.onPick ? opts.onPick(name) : openEntryEditor(name)),
+      onTripleClick: () => openEntryEditor(name),
+    }));
     return row;
   }
 
@@ -1646,7 +1679,7 @@
     input.addEventListener('click', (e) => e.stopPropagation());
   }
 
-  /** 程序化改一个方案的名字（控制台与测试用；界面上就是长按）。 */
+  /** 程序化改一个方案的名字（控制台与测试用；界面上就是**三击** chip）。 */
   function renamePlan(id, name) {
     const v = String(name || '').trim();
     if (!v) return false;
@@ -1658,6 +1691,13 @@
     }));
     if (hit) render();
     return hit;
+  }
+
+  /** 删掉一个小方案。**右键与长按都走它**（手机上点不出右键，所以长按是那条出口）。 */
+  function deletePlan(plan) {
+    writeLS(LS.plans, plans().filter((x) => x.id !== plan.id));
+    render();
+    toast('已删除「' + plan.name + '」', 'ok');
   }
 
   /* ── toast ──────────────────────────────────────────────────────── */
@@ -1905,10 +1945,8 @@
 .fp-editbtn{border-style:dashed;color:var(--fp-text-dim)}
 .fp-editbtn[data-on="1"]{border-style:solid}
 
-/* 长按条目改正文：按住时先给反馈，松手前一直亮着（.fp-hold 由手势加上去） */
+/* 开关行：手机上只允许纵向滚动（横向手势留给面板自己），点一下照常生效 */
 .fp-sw{touch-action:pan-y}
-.fp-sw.fp-hold{border-color:var(--fp-accent);background:var(--fp-accent-soft);
-  box-shadow:0 0 0 3px var(--fp-accent-soft);transform:scale(.97)}
 .fp-sw[data-subtle="1"]{font-size:11px;color:var(--fp-text-faint)}
 
 /* 长按开出来的正文编辑器：盖在窗口里的一层（点空白处关掉） */
@@ -2181,18 +2219,29 @@
     for (const plan of ps) {
       const c = el('span', 'fp-chip', plan.name);
       c.dataset.plan = plan.id;
-      c.title = '点一下应用；长按改名；右键删除';
-      /* 点一下的守卫必须由**这个节点自己**拦（见 onRowClick 的注释）：
-         长按会触发一次重渲染，原来那个 chip 已从文档里摘下来了，浏览器仍可能把
-         随后的 click 派发到它身上——那时"改完名"会顺手把方案应用掉。 */
-      c.addEventListener('click', onRowClick(() => applyPlan(plan)));
+      c.title = '点一下应用；三击改名；长按或右键删除';
+      /* 手势分工（用户点名要的）：
+           点一下 → 应用这个方案
+           三击   → 就地改名
+           长按 / 右键 → 删除（长按是给手机的：那里点不出右键）
+         点一下与三击由 rowClicks 一起管：**三击的前两下也是 click**，不推迟单击的话，
+         改个名会顺手把方案应用两次（每次都是一次写回）。状态挂在闭包里，
+         所以三击引发的重渲染不会把计数打断（旧节点上派发来的 click 也数得到）。 */
+      const chipClick = rowClicks({
+        onClick: () => applyPlan(plan),
+        onTripleClick: () => startRenamePlan(plan.id),
+        /* force：这两条不受"三击改正文"那个开关影响——那是给条目正文的 */
+        force: true,
+      });
+      c.addEventListener('click', chipClick);
+      /* 长按删除：**非点击手势**，所以触发时先把点击那套作废，
+         否则松手跟来的那次 click 会顺手把方案应用一次（每次都是一次写回）。 */
+      bindHold(c, 600, () => { chipClick.cancelPending(); deletePlan(plan); });
       c.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        writeLS(LS.plans, plans().filter((x) => x.id !== plan.id));
-        render(); toast('已删除「' + plan.name + '」', 'ok');
+        chipClick.cancelPending();
+        deletePlan(plan);
       });
-      /* force：长按改名不受"长按改正文"那个开关影响——那是给条目正文的 */
-      bindLongPress(c, plan.id, { force: true, onLongPress: () => startRenamePlan(plan.id) });
       planChips.set(plan.id, c);
       chips.appendChild(c);
     }
@@ -2347,9 +2396,11 @@
       sw.appendChild(el('span', '', LBL(m)));
       if (p) sw.appendChild(el('i', '', sizeLabel(chars(p.content))));
       sw.title = p ? `${LBL(m)}\n${chars(p.content)} 字　当前：${on(p) ? '开' : '关'}` : `${LBL(m)}\n当前预设里没有这一条`;
-      if (CFG.edit.longPress.enabled && p) sw.title += '\n长按这一行改它的正文';
-      if (p) sw.addEventListener('click', onRowClick(() => toggleOne(m, !on(p))));
-      bindLongPress(sw, m);
+      if (CFG.edit.tripleClick.enabled && p) sw.title += '\n三击这一行改它的正文';
+      if (p) sw.addEventListener('click', rowClicks({
+        onClick: () => toggleOne(m, !on(p)),
+        onTripleClick: () => openEntryEditor(m),
+      }));
       grid.appendChild(sw);
       if (EDITABLE[m]) grid.appendChild(editBtn(m));
     }
@@ -2436,7 +2487,7 @@
     if (g.mode === 'fixed') {
       box.appendChild(el('div', 'fp-modnote',
         `面板不碰这 ${g.members.length} 条的开关（酒馆内置槽位与核心结构）`
-        + (CFG.edit.longPress.enabled ? '；长按名字可以看/改它的正文。' : '。')));
+        + (CFG.edit.tripleClick.enabled ? '；三击名字可以看/改它的正文。' : '。')));
       box.appendChild(entryRows(g.members, { subtle: true }));
       return box;
     }
@@ -2447,9 +2498,9 @@
       for (const m of g.members) {
         const wrap = el('div', 'fp-tunable');
         const label = el('div', 'fp-tunlabel', LBL(m));
-        if (CFG.edit.longPress.enabled) {
-          label.title = '长按这里可以把正文摊成一个大框改（下面这个框本来就是可改的）';
-          bindLongPress(label, m);
+        if (CFG.edit.tripleClick.enabled) {
+          label.title = '三击这里可以把正文摊成一个大框改（下面这个框本来就是可改的）';
+          label.addEventListener('click', rowClicks({ onTripleClick: () => openEntryEditor(m) }));
         }
         wrap.appendChild(label);
         wrap.appendChild(editorBlock(m, (g.editable || {})[m] || {}));
@@ -2479,7 +2530,7 @@
       /* 下拉框是原生控件（一按就弹系统选择器），长按挂不上去；
          所以它的"条目行"放在下面这一行：长按 = 改当前选中那一条的正文。 */
       if (cur) box.appendChild(entryRows([cur], { subtle: true }));
-      else if (CFG.edit.longPress.enabled) box.appendChild(el('div', 'fp-modnote', '选中一条之后，下面会出现它的条目行——长按可以看/改它的正文。'));
+      else if (CFG.edit.tripleClick.enabled) box.appendChild(el('div', 'fp-modnote', '选中一条之后，下面会出现它的条目行——三击可以看/改它的正文。'));
       /* 选中的是可编辑条目就直接把输入框摊开，不用再去别处找 */
       if (cur && EDITABLE[cur]) {
         const wrap = el('div', 'fp-tunable');
@@ -2508,9 +2559,11 @@
       sw.appendChild(el('span', '', LBL(m)));
       if (p) sw.appendChild(el('i', '', sizeLabel(chars(p.content))));
       sw.title = p ? `${LBL(m)}\n${chars(p.content)} 字　当前：${on(p) ? '开' : '关'}` : `${LBL(m)}\n当前预设里没有这一条`;
-      if (CFG.edit.longPress.enabled && p) sw.title += '\n长按这一行改它的正文';
-      if (p) sw.addEventListener('click', onRowClick(() => toggleOne(m, !on(p))));
-      bindLongPress(sw, m);
+      if (CFG.edit.tripleClick.enabled && p) sw.title += '\n三击这一行改它的正文';
+      if (p) sw.addEventListener('click', rowClicks({
+        onClick: () => toggleOne(m, !on(p)),
+        onTripleClick: () => openEntryEditor(m),
+      }));
       grid.appendChild(sw);
       if (EDITABLE[m]) grid.appendChild(editBtn(m));
     }
@@ -2633,7 +2686,9 @@
     /** 生效中的外观配置（含夹取后的值）——预设生成器的「面板外观」用它做对照。 */
     config: () => ({ raw: CONFIG, effective: CFG, wallpaper: hasWallpaper() }),
     /** 这份面板有哪些能力（编辑器导出前检查、以及"这份面板是不是新版"都看这个）。 */
-    caps: () => ({ longPressEdit: CFG.edit.longPress.enabled === true, longPressMs: CFG.edit.longPress.ms }),
+    /* 键名 longPressEdit / longPressMs 是历史遗留（0.7.0 起手势是三击），**故意不改**：
+       编辑器与测试都在读它们，改名等于白送一次破坏性改动。值取的是当前手势的配置。 */
+    caps: () => ({ longPressEdit: CFG.edit.tripleClick.enabled === true, longPressMs: CFG.edit.tripleClick.ms }),
     /** 长按条目的那条路，程序化入口（给控制台与测试用；界面上就是长按）。 */
     editEntry: (name) => openEntryEditor(name),
     closeEditor: () => closeEntryEditor(),
