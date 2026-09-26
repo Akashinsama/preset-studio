@@ -38,10 +38,16 @@
 /_zipcheck/
 /panel/preview-host.js
 /tools/gui/demo/*.js
+# 但**标准纸**转出来的演示数据要随仓库走：克隆下来双击 index.html 就该有样例可看。
+# 它由 tools/build-demo-paper.mjs 从 samples/标准纸.json 生成，可以用 --check 校验一致。
+!/tools/gui/demo/paper-demo.js
 
 # 夹具放这里；只保留说明文件
 /samples/*
 !/samples/README.md
+# **标准纸**随仓库走（演示与测试都用它，clone 下来就该有）：它是我们自己的那张，
+# 不是"你放进去的夹具"。其余东西照旧被上面那行挡着。
+!/samples/标准纸.json
 
 # 临时文件（跑测试/截图留下的）
 *.log

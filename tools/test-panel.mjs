@@ -17,6 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { needAll } from './lib/fixtures.mjs';
+import { composePanel } from './lib/panel-compose.mjs';
 
 /* 夹具守卫：面板跑在**假酒馆宿主**里，宿主数据是从成品预设生成的（panel/preview-host.js）。 */
 needAll([path.join('panel', 'preview-host.js'), path.join('preset', '芳乃预设.json')],
@@ -25,6 +26,22 @@ needAll([path.join('panel', 'preview-host.js'), path.join('preset', '芳乃预�
 
 const ROOT = process.cwd();
 const P = (...a) => path.join(ROOT, ...a);
+
+/* ── 这一套测的是**哪一版**面板 ──────────────────────────────────────
+   库内那份 panel/fano-panel.js 是**默认版**：脚本层防截断没注入（里面是空壳，
+   一个字节的第三方代码都没有），出厂开关也是关的。
+   但 [13] 那一节要验的正是"点一下真的装/卸拦截器、正文真的从合成函数里回来"——
+   那只有**注入版**才做得到，所以这一套跑的是注入版，并且把出厂开关打开
+   （注入版默认也是关的：那段代码是借来的，要显式开）。
+
+   默认版自身的行为（空壳、available=false、不碰 fetch、不带那段代码）
+   在 test-panelconfig.mjs 里用 bootWith() 验，另加下面那两条源码级断言。 */
+const PANEL_SRC_AT = composePanel({ root: ROOT, withAntitrunc: true }).src;
+const PANEL_SRC_DEFAULT = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
+new Function('globalThis', fs.readFileSync(P('tools', 'gui', 'lib', 'panelconfig.js'), 'utf8'))(globalThis);
+const PC = globalThis.PresetPanelConfig;
+const AT_ON = PC.patchConfig(PANEL_SRC_AT, PC.mergeConfig(
+  PC.extractConfig(PANEL_SRC_AT), { antitrunc: { enabled: true } }));
 
 /* ── 极简 DOM 壳 ─────────────────────────────────────────────────── */
 function makeDom() {
@@ -183,7 +200,7 @@ let writes = 0;
 const rawWrite = win.updatePresetWith;
 win.updatePresetWith = async (...args) => { writes++; return rawWrite(...args); };
 
-load(fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8'), win, dom.document, localStorage);
+load(AT_ON, win, dom.document, localStorage);
 
 /* 三击手势要**等一个窗口**单击才生效（见面板里的 rowClicks：不等就分不清第 2、3 下）。
    凡是"点一下然后马上断言"的地方，都得先 await 这一个。 */
@@ -683,6 +700,38 @@ console.log('\n[13] 脚本层防截断：开关真的装/卸，正文真的从�
     requests[0].body.tools === undefined && requests[0].body.messages.length === 1,
     JSON.stringify(requests[0].body));
   clickButton('🛡 防截断');   /* 复位：别把开关状态留给后面的用例 */
+}
+
+/* ── 13b. 库内**默认**那份面板：不含借来的代码，空壳也不假装能干活 ──────
+   这一节的四句是**源码级**断言（不是行为断言）：整个仓库的口径是"别人的代码不默认装出去"，
+   所以必须有一处直接盯着产物里有没有那段代码——不然哪天谁手滑跑了
+   `build-panel.mjs --with-antitrunc` 并提交，没有任何测试会响。 */
+console.log('\n[13b] 库内默认那份面板：不含借来的代码');
+{
+  ok('默认那份里没有防截断的真模块（源码级）',
+    !/emit_complete_response_/.test(PANEL_SRC_DEFAULT)
+    && /function\s+createAntiTruncation\s*\(/.test(PANEL_SRC_DEFAULT)
+    && PANEL_SRC_DEFAULT.includes('__FANO_ANTITRUNC_STUB__'),
+    `真模块=${/emit_complete_response_/.test(PANEL_SRC_DEFAULT)} 空壳标记=${PANEL_SRC_DEFAULT.includes('__FANO_ANTITRUNC_STUB__')}`);
+  ok('注入版里**有**真模块（两版的差别就在这一段）',
+    /emit_complete_response_/.test(PANEL_SRC_AT) && !PANEL_SRC_AT.includes('__FANO_ANTITRUNC_STUB__'));
+  ok('默认那份的出厂开关是关的（CONFIG.antitrunc.enabled）',
+    PC.extractConfig(PANEL_SRC_DEFAULT)?.antitrunc?.enabled === false,
+    JSON.stringify(PC.extractConfig(PANEL_SRC_DEFAULT)?.antitrunc));
+  ok('两版除了那一段以外逐字节相同（换版不会顺手改别的）', (() => {
+    /* 把两边"防截断那一段 + 它上面那句说明 + 文件头 banner"都挖掉再比：
+       剩下应当一字不差（banner 里本来就写着"注入了没有"，那是产物说明）。 */
+    const strip = (s) => {
+      const i = s.indexOf('/* ── 脚本层防截断（可选注入）');
+      const j = s.indexOf(PC.AT_SLOT_END);
+      if (i < 0 || j < 0) return null;
+      const body = s.slice(0, i) + s.slice(j + PC.AT_SLOT_END.length);
+      return body.slice(body.indexOf('*/\n') + 3);
+    };
+    const a = strip(PC.withAntitrunc(PANEL_SRC_DEFAULT, PANEL_SRC_AT));
+    const b = strip(PANEL_SRC_AT);
+    return !!a && a === b;
+  })());
 }
 
 console.log('\n[14] 三击条目 → 改这一条的正文');

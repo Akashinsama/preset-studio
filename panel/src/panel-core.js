@@ -202,12 +202,17 @@
          用户在面板上点过 🖼 之后以他点的为准——真状态在 localStorage 的 LS.wall。 */
       enabled: true,
     },
-    /* 脚本层防截断（拦截 generate 请求，让正文走函数调用回传；实现见
-       panel/src/antitrunc.js）。这里只是**这份预设出厂时的开关**：
-       真正记状态的是 localStorage 的 fano-antitrunc-v1（顶部「🛡 防截断」按钮
-       写的就是它）。所以 enabled=false 表示"这份预设出厂不带防护"，
-       用户点过按钮之后就以他点的为准。 */
-    antitrunc: { enabled: true },
+    /* 脚本层防截断（拦截 generate 请求，让正文走函数调用回传）。**出厂默认关**，
+       两个理由：
+         · 那段实现**是从别人的预设里移植来的**（原作 Kemini Dramatron v3.1 的
+           scripts[0]，作者 Kemini，出处见 NOTICE.md）。按作者定的口径：别人的代码
+           **不默认装出去**——要它得显式注入（node tools/build-panel.mjs --with-antitrunc，
+           或在编辑器「面板外观」里勾那一项）。
+         · 没注入时，面板里坐着的是 panel/src/antitrunc-stub.js 空壳（我们自己写的），
+           开关动不了任何东西，也不该装作能动。
+       这里只是**这份预设出厂时的开关**：真正记状态的是 localStorage 的
+       fano-antitrunc-v1（顶部「🛡 防截断」按钮写的就是它）。 */
+    antitrunc: { enabled: false },
     /* 顶部脚本按钮（酒馆助手）。名字必须和预设里**静态声明**的那两个一致，
        否则酒馆渲染的是静态名字、面板去接另一个名字，按钮就成了摆设——
        tools/build-preset.mjs 写 button.buttons 时读的正是这里，改完重新构建即可。
@@ -298,11 +303,12 @@
          test-panelconfig.mjs 会把两边的生效值逐字段（含顺序）比对。 */
       enabled: CONFIG?.wallpaper?.enabled !== false,
     },
-    /* 只认显式 false：没写 / 写错 / null 都当**开启**（默认要有这一层防护）。
+    /* 只认显式 true：没写 / 写错 / null 都当**关着**（默认不装别人的代码；
+       要防护就显式开，同时得注入真模块——见 DEFAULT_CONFIG 里那段注释）。
        字段顺序与 tools/gui/lib/panelconfig.js 的 clampConfig() 必须一致：
        test-panelconfig.mjs 会把两边的生效值逐字段（含顺序）比对。 */
     antitrunc: {
-      enabled: CONFIG?.antitrunc?.enabled !== false,
+      enabled: CONFIG?.antitrunc?.enabled === true,
     },
     button: {
       enabled: CONFIG?.button?.enabled !== false,
@@ -2197,10 +2203,16 @@
      脚本层防截断：拦截发往 api/backends/<后端>/generate 的请求，让模型把正文
      走一个合成函数调用回传，从而绕开"纯文本流被渠道掐断"那条路。
 
-     这一段**由构建期注入**：tools/build-panel.mjs 把 panel/src/antitrunc.js 的
-     整体内容塞进下面那对标记之间（要改就去改 panel/src/antitrunc.js，
-     这个文件里那一段会被覆盖）。开关读 LS.antitrunc = fano-antitrunc-v1，
-     与顶部「🛡 防截断」按钮同一个键；出厂默认值来自 CONFIG.antitrunc.enabled。
+     这一段**由构建期注入，而且是可选的**（tools/lib/panel-compose.mjs）：
+       · 默认注入 panel/src/antitrunc-stub.js —— 本工程自己写的空壳：API 同名同形、
+         什么都不做，**不含任何第三方代码**。CONFIG.antitrunc.enabled 出厂也是 false。
+       · 想真装上：node tools/build-panel.mjs --with-antitrunc，或在编辑器
+         「面板外观」里勾「注入防截断」。那时注入的是 panel/src/antitrunc.js ——
+         它是**从别人的预设移植来的**（原作 Kemini Dramatron v3.1 的 scripts[0]，
+         作者 Kemini），出处与"作者主张权利即删除"的说明见 NOTICE.md。
+
+     开关读 LS.antitrunc = fano-antitrunc-v1，与顶部「🛡 防截断」按钮同一个键；
+     出厂默认值来自 CONFIG.antitrunc.enabled。
 
      位置：放在面板本体之后、按钮接线之前——它要用 LS 与 CFG（都在上面定义好了），
      而创建实例时就按开关决定装不装拦截器，所以必须在按钮接线之前落地。
@@ -2236,6 +2248,11 @@
     return null;
   }
 
+  /* 「🛡 防截断」这个按钮**只在这一版真的注入了**防截断模块时才声明/接线。
+     默认那版面板里坐着的是空壳（available=false）：摆一个按下去只能说"没装"的按钮
+     是骗人的，没注入就让它干脆不出现。（要它：构建时 --with-antitrunc，或编辑器里勾选。） */
+  const ANTITRUNC_AVAILABLE = ANTITRUNC.available !== false;
+
   try {
     if (!CFG.button.enabled) {
       console.log('[芳乃面板] CONFIG.button.enabled = false：顶部按钮既不静态声明也不接线');
@@ -2243,7 +2260,9 @@
       const declBtn = hostApi('appendInexistentScriptButtons');
       const getEvt = hostApi('getButtonEvent');
       const onEvt = hostApi('eventOn');
-      if (declBtn) declBtn([{ name: CFG.button.panel, visible: true }, { name: CFG.button.antitrunc, visible: true }]);
+      const wanted = [{ name: CFG.button.panel, visible: true }];
+      if (ANTITRUNC_AVAILABLE) wanted.push({ name: CFG.button.antitrunc, visible: true });
+      if (declBtn) declBtn(wanted);
       if (getEvt && onEvt) {
         onEvt(getEvt(CFG.button.panel), () => {
           /* 这个按钮是**把悬浮球和面板一起藏起来 / 再叫回来**（用户点名要的功能），
@@ -2254,18 +2273,23 @@
             ? '面板已隐藏——再点一次「' + CFG.button.panel + '」就能叫回来'
             : '面板已显示', state.hidden ? 'info' : 'ok');
         });
-        onEvt(getEvt(CFG.button.antitrunc), () => {
-          /* 切开关 = 真的装/卸拦截器（见 panel/src/antitrunc.js 的 setEnabled）。 */
-          const want = !ANTITRUNC.isEnabled();
-          const st = ANTITRUNC.setEnabled(want);
-          /* 报"实际发生了什么"：开关记下了但没装上，就得直说，不能报个"已开启"就完事。 */
-          if (st.enabled && !st.installed) {
-            notifyUser('脚本层防截断：开关已打开，但拦截器没装上（拿不到宿主窗口的 fetch）——'
-              + '详情见控制台 __FANO_ANTITRUNC__', 'err');
-          } else {
-            notifyUser(`脚本层防截断：${st.enabled ? '已开启' : '已关闭'}`, st.enabled ? 'ok' : 'info');
-          }
-        });
+        if (ANTITRUNC_AVAILABLE) {
+          onEvt(getEvt(CFG.button.antitrunc), () => {
+            /* 切开关 = 真的装/卸拦截器（见 panel/src/antitrunc.js 的 setEnabled）。 */
+            const want = !ANTITRUNC.isEnabled();
+            const st = ANTITRUNC.setEnabled(want);
+            /* 报"实际发生了什么"：开关记下了但没装上，就得直说，不能报个"已开启"就完事。 */
+            if (st.enabled && !st.installed) {
+              notifyUser('脚本层防截断：开关已打开，但拦截器没装上（拿不到宿主窗口的 fetch）——'
+                + '详情见控制台 __FANO_ANTITRUNC__', 'err');
+            } else {
+              notifyUser(`脚本层防截断：${st.enabled ? '已开启' : '已关闭'}`, st.enabled ? 'ok' : 'info');
+            }
+          });
+        } else {
+          console.log('[芳乃面板] 这一版没有注入脚本层防截断（装的是空壳）：不声明也不接线「'
+            + CFG.button.antitrunc + '」按钮。要它：构建时加 --with-antitrunc，或在编辑器「面板外观」里勾选。');
+        }
       } else {
         console.warn('[芳乃面板] 宿主没给按钮 API（appendInexistentScriptButtons / getButtonEvent / eventOn），顶部按钮不接线');
       }

@@ -1,33 +1,49 @@
-# samples/ · 放你自己的样例预设（可选）
+# samples/ · 自己的样例预设 + 仓库自带的那张标准纸
 
-**这个目录默认是空的，里面的东西不会被提交**（`.gitignore` 里写着 `samples/*`）。
+这个目录里有**一样东西是随仓库走的**：`标准纸.json`——演示与测试都用它，`.gitignore` 特意放行。
+**其余东西不会被提交**（`.gitignore` 里写着 `samples/*`）。
+
+## 标准纸是什么
+
+```bash
+node tools/build-demo-paper.mjs           # samples/标准纸.json → tools/gui/demo/paper-demo.js
+node tools/build-demo-paper.mjs --check   # 只校验两者一致
+```
+
+它是**我们自己的**一张演示预设（27 条条目，正文全是「仅作演示，无实际作用」占位）。
+编辑器双击打开时加载的就是它（`tools/gui/demo/paper-demo.js` 由上面那句生成），
+`tools/test-gui.mjs` 也拿它当样本。要换纸就改这个 json，再跑一次上面那句。
+
+> 早先编辑器加载的是**一份第三方预设**，测试也拿那份纸的规模当基线；现在两边都换成标准纸了——
+> 纸是我们自己的，尺子才量得准（理由见 `NOTICE.md`）。
 
 ## 先看这条：仓库自己能造夹具，你多半什么都不用放
 
 ```bash
-node tools/build-all.mjs     # 造合成夹具 → 生成折叠链 / 样例预设 / 宿主 / 演示数据 / dist
+node tools/build-all.mjs     # 标准纸转演示数据 → 造合成夹具 → 折叠链 / 样例预设 / 宿主 / 示例素材 / dist
 ```
 
 `tools/make-fixture.mjs` 会照 **`spec/` 里已经进库的结构信息**（`groups.json` 的分组与成员名、
 `slot-owner.json` 的槽位主人）**自己造**三份源预设：
 
-- 条目名 / 槽位 / 顺序 / 初始开关 —— 与真实成品同一套结构；
+- 条目名 / 槽位 / 顺序 / 初始开关 —— 与真实成品同一套结构（**借的是名字**，见 `NOTICE.md`）；
 - 正文一律是「【合成夹具】…」占位，**一个字节的第三方文本都没有**；
-- 顶层带 `__synthFixture` 标记，测试据此分辨"真夹具 / 合成夹具"，并把按夹具重算的基准打印出来；
+- 顶层带 `__synthFixture` 标记，测试据此分辨"真夹具 / 合成夹具"；
 - 确定性：同一个 `spec/` 生成的结果逐字节相同（内容是名字/下标推出来的，不用随机数、不写时间戳）。
 
-跑完这一句，**全部测试套件就都能真跑了**（实测：`selftest 72 + test-regex 30 + test-gui 331 +
-test-panel 120 + test-panelconfig 83 + test-mobile 20 + test-iframe 26 + check-preset 108 = 790 项全绿`），
+跑完这一句，**全部测试套件就都能真跑了**（实测：`selftest 75 + test-regex 30 + test-gui 359 +
+test-panel 191 + test-panelconfig 107 + test-mobile 20 + test-iframe 38 + check-preset 109 = 929 项全绿`），
 浏览器那两层也能跑（要本机 Chrome/Edge）。
 
 ## 想跑**真实**数据：把真预设放成同名即可
 
 生成器**只写自己生成的文件**：目标文件已存在且没有 `__synthFixture` 标记 → 那是真预设，它一个字都不动；
-名字对不上就直接读真文件，链条照旧跑真实数据。想要"真实夹具优先"的行为，把下面这些放进来：
+名字对不上就直接读真文件，链条照旧跑真实数据。另外两条进库的元数据（`preset/regex-manifest.json`、
+`preset/build-report.txt`）**只有真夹具才许覆盖**——合成夹具跑过不会动它们。想要"真实夹具优先"的行为，把下面这些放进来：
 
 | 文件名 | 谁需要它 | 说明 |
 |---|---|---|
-| `Izumi_0914.json` | `test-gui.mjs`、`build-gui-demo.mjs`、`check-browser.mjs` 的样本 | 主力样本（条目多、结构完整）。任意一份你自己的复杂预设改名成它即可。 |
+| `Izumi_0914.json` | `build-regex.mjs`、`build-preset.mjs`、`build-gui-demo.mjs` 的样本 | 主力样本（条目多、结构完整）。任意一份你自己的复杂预设改名成它即可。 |
 | `Kemini_Dramatron_v3.1.json` | `build-regex.mjs`、`build-preset.mjs`、`check-preset.mjs` | 思维链"多块"形态与破甲结构的对照样本。 |
 | `梦鲸思客V4-0915.json` | `build-preset.mjs`、`check-preset.mjs` | 第三方破甲层样本。 |
 | `preset/芳乃预设.json` | `selftest.mjs`、`test-panel.mjs`、`build-preview.mjs` | **成品预设**：由上面三份经 `tools/build-preset.mjs` 组装。没有源预设就直接把它当夹具放进 `preset/`（该路径不受 `samples/` 影响，`.gitignore` 已忽略）。 |

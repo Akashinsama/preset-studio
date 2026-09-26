@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { has, need, skip, isSynthetic } from './lib/fixtures.mjs';
+import { composePanel } from './lib/panel-compose.mjs';
 
 /* 夹具守卫：这套测试真加载面板，宿主数据来自 preview-host.js（由成品预设生成）；
    另外要一份预设当样本（优先 Izumi，其次成品）。都见 samples/README.md。 */
@@ -111,6 +112,13 @@ const PC = globalThis.PresetPanelConfig;
 const PANEL_SRC = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
 const HOST_SRC = fs.readFileSync(P('panel', 'preview-host.js'), 'utf8');
 
+/* 脚本层防截断是**可选注入**，于是有两份源码要验：
+     · PANEL_SRC  = 库内那份（默认）：装的是我们自己写的空壳，不带第三方代码；
+     · PANEL_SRC_AT = 当场拼一版**注入真模块**的（借自 Kemini，见 NOTICE.md）。
+   空壳的行为（available=false、不碰 fetch、不声明 🛡 按钮）只能拿 PANEL_SRC 验；
+   "真能装上"只能拿 PANEL_SRC_AT 验。两边都要有断言，不然哪个悄悄坏了都没人知道。 */
+const PANEL_SRC_AT = composePanel({ root: ROOT, withAntitrunc: true }).src;
+
 /** 用一份配置真加载一次面板，返回它自己算出来的生效值 */
 async function boot(cfg) {
   return bootWith(PC.patchConfig(PANEL_SRC, cfg));
@@ -195,12 +203,15 @@ console.log('[1] 配置块的抠取与回写');
 
   /* 脚本层防截断的出厂开关 + 顶部按钮：这两段必须**同时**出现在 DEFAULT_CONFIG
      和 clampConfig 里。只加一边的话，"面板外观"页一保存就会把用户关掉的开关写回
-     默认值——这正是本文件开头那条教训（当年 title 就这样丢过）。 */
+     默认值——这正是本文件开头那条教训（当年 title 就这样丢过）。
+     出厂值本身在 0.x 这一版**翻过来了**：那段实现是借来的（原作 Kemini Dramatron v3.1，
+     见 NOTICE.md），按作者口径**默认不装**——所以默认关、要开得显式开，
+     而且"只认显式 true"（写错/没写都当关）。 */
   ok('默认配置里有 antitrunc / button', 'antitrunc' in PC.DEFAULT_CONFIG && 'button' in PC.DEFAULT_CONFIG,
     Object.keys(PC.DEFAULT_CONFIG).join('、'));
-  ok('出厂默认：防截断开、按钮声明开，名字就是那两个', (() => {
+  ok('出厂默认：防截断**关**、按钮声明开，名字就是那两个', (() => {
     const D = PC.DEFAULT_CONFIG;
-    return D.antitrunc.enabled === true && D.button.enabled === true
+    return D.antitrunc.enabled === false && D.button.enabled === true
       && D.button.panel === '🙈 隐藏' && D.button.antitrunc === '🛡 防截断';
   })(), JSON.stringify({ a: PC.DEFAULT_CONFIG.antitrunc, b: PC.DEFAULT_CONFIG.button }));
   /* 壁纸的"预设默认开关"（0.6.0）：同样是"只认显式 false"，
@@ -217,7 +228,7 @@ console.log('[1] 配置块的抠取与回写');
     JSON.stringify(PC.TOKEN_SPEC.map((t) => t.key).slice(-2)));
   ok('面板源码里那两段的出厂值也一样（默认值只许有一份说法）', (() => {
     const c = PC.extractConfig(PANEL_SRC);
-    return c.antitrunc.enabled === true && c.button.enabled === true
+    return c.antitrunc.enabled === false && c.button.enabled === true
       && c.button.panel === '🙈 隐藏' && c.button.antitrunc === '🛡 防截断';
   })(), JSON.stringify(PC.extractConfig(PANEL_SRC).button));
   ok('关掉这两项后「回写→再读」，值还在（外观页保存不丢字段）', (() => {
@@ -228,20 +239,21 @@ console.log('[1] 配置块的抠取与回写');
     const back = PC.extractConfig(PC.patchConfig(PANEL_SRC, off));
     return back.antitrunc.enabled === false && back.button.enabled === false && back.button.panel === '⚙ 我的面板';
   })());
-  ok('夹取不把显式 false 翻回 true', (() => {
-    const c = PC.clampConfig({ antitrunc: { enabled: false }, button: { enabled: false } });
-    return c.antitrunc.enabled === false && c.button.enabled === false;
+  ok('夹取不翻极性：显式 true 留 true、显式 false 留 false', (() => {
+    const on = PC.clampConfig({ antitrunc: { enabled: true } });
+    const off = PC.clampConfig({ antitrunc: { enabled: false }, button: { enabled: false } });
+    return on.antitrunc.enabled === true && off.antitrunc.enabled === false && off.button.enabled === false;
   })());
   ok('夹取后这两个键都还在（少一个就会被写回默认值）',
     ['antitrunc', 'button'].every((k) => k in PC.clampConfig({})), Object.keys(PC.clampConfig({})).join('、'));
-  ok('脏值 / 空名字：按开启 + 退回默认按钮名', (() => {
+  ok('脏值 / 空名字：按**关**（默认不装）+ 退回默认按钮名', (() => {
     const c = PC.clampConfig({ antitrunc: { enabled: '随便' }, button: { panel: '   ', antitrunc: null } });
-    return c.antitrunc.enabled === true && c.button.panel === '🙈 隐藏' && c.button.antitrunc === '🛡 防截断';
+    return c.antitrunc.enabled === false && c.button.panel === '🙈 隐藏' && c.button.antitrunc === '🛡 防截断';
   })(), JSON.stringify(PC.clampConfig({ antitrunc: { enabled: '随便' }, button: { panel: '   ' } }).button));
   ok('经 clamp 往返不丢字段（同一份配置夹两次结果逐字相同）', (() => {
-    const once = PC.clampConfig(PC.mergeConfig(cfg, { antitrunc: { enabled: false } }));
+    const once = PC.clampConfig(PC.mergeConfig(cfg, { antitrunc: { enabled: true } }));
     const twice = PC.clampConfig(once);
-    return JSON.stringify(once) === JSON.stringify(twice) && twice.antitrunc.enabled === false;
+    return JSON.stringify(once) === JSON.stringify(twice) && twice.antitrunc.enabled === true;
   })());
 
   /* 三击条目改正文：同样的"成对"要求（DEFAULT_CONFIG 与 clampConfig 各一份，少一边就丢） */
@@ -311,16 +323,31 @@ console.log('\n[2] 夹取逻辑：lib 与面板逐字段一致（防漂移）');
     JSON.stringify({ ball: clampedBad.ball, scale: clampedBad.layout.scale, opacity: clampedBad.layout.opacity }));
   ok('null 也当"没写"处理（不透明回落到 1，不是 0.15）', clampedBad.layout.opacity === 1, String(clampedBad.layout.opacity));
 
-  /* 出厂开关真的生效：CONFIG.antitrunc.enabled=false 的预设，启动时就不该装拦截器 */
-  const offBoot = await boot({ antitrunc: { enabled: false } });
-  const AT = offBoot.win.__FANO_ANTITRUNC__;
-  ok('面板启动就建好了防截断实例（控制台 API 在）', !!AT && typeof AT.isEnabled === 'function' && AT.key === 'fano-antitrunc-v1',
-    AT ? String(AT.key) : '没有');
-  ok('出厂关着：启动即为关，一个包装都不留在 window.fetch 上',
-    AT.isEnabled() === false && AT.installed() === false);
-  const onBoot = await boot({});
-  ok('默认出厂开着 + 宿主有 fetch：启动就真装上了',
-    onBoot.win.__FANO_ANTITRUNC__.isEnabled() === true && onBoot.win.__FANO_ANTITRUNC__.installed() === true);
+  /* 脚本层防截断：**两版都要有断言**。
+     · 库内那份（默认）= 空壳：API 在、available=false、一个包装都不装、点按钮也装不上；
+     · 注入版（当场拼的）= 真模块：出厂开着就真挂到 fetch 上。
+     "默认不装别人的代码"这条口径，就是靠前一半守着的。 */
+  const offBoot = await boot({});
+  const ATstub = offBoot.win.__FANO_ANTITRUNC__;
+  ok('默认那版也建了防截断实例（控制台 API 在，免得用户以为面板坏了）',
+    !!ATstub && typeof ATstub.isEnabled === 'function' && ATstub.key === 'fano-antitrunc-v1',
+    ATstub ? String(ATstub.key) : '没有');
+  ok('默认那版是空壳：available=false，且一个包装都不装在 fetch 上',
+    ATstub.available === false && ATstub.isEnabled() === false && ATstub.installed() === false);
+  ok('空壳版源码里没有借来的代码（emit_complete_response_ 是那段的核心标记）',
+    !/emit_complete_response_/.test(PANEL_SRC) && PANEL_SRC.includes('__FANO_ANTITRUNC_STUB__'));
+  const stubOn = await boot({ antitrunc: { enabled: true } });
+  const ATstubOn = stubOn.win.__FANO_ANTITRUNC__;
+  ok('就算把开关打开，空壳也装不上任何东西（不骗人：available=false）',
+    ATstubOn.available === false && ATstubOn.isEnabled() === false && ATstubOn.installed() === false
+    && ATstubOn.setEnabled(true).available === false);
+  const ATon = await bootWith(PC.patchConfig(PANEL_SRC_AT, PC.mergeConfig(PC.extractConfig(PANEL_SRC_AT), { antitrunc: { enabled: true } })));
+  const ATr = ATon.win.__FANO_ANTITRUNC__;
+  ok('注入版 + 出厂开着：启动就真装上了（宿主有 fetch）',
+    !!ATr && ATr.available !== false && ATr.isEnabled() === true && ATr.installed() === true);
+  const ATon2 = await bootWith(PC.patchConfig(PANEL_SRC_AT, PC.mergeConfig(PC.extractConfig(PANEL_SRC_AT), { antitrunc: { enabled: false } })));
+  ok('注入版 + 出厂关着：启动即为关，一个包装都不留在 window.fetch 上',
+    ATon2.win.__FANO_ANTITRUNC__.isEnabled() === false && ATon2.win.__FANO_ANTITRUNC__.installed() === false);
 
   /* 三击改正文：出厂关掉时，面板自己就该说"没有这个能力"（编辑器导出前检查认这个） */
   const noHold = await boot({ edit: { tripleClick: { enabled: false } } });

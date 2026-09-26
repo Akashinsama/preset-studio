@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { need } from './lib/fixtures.mjs';
+import { composePanel } from './lib/panel-compose.mjs';
 
 /* 夹具守卫：面板跑在假酒馆宿主里（preview-host.js，由成品预设生成）。 */
 need(path.join('panel', 'preview-host.js'), 'iframe / 时序场景测试（33 项）');
@@ -26,6 +27,17 @@ const ROOT = process.cwd();
 const P = (...a) => path.join(ROOT, ...a);
 const PANEL_SRC = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
 const HOST_SRC = fs.readFileSync(P('panel', 'preview-host.js'), 'utf8');
+
+/* 脚本层防截断是**可选注入**（默认那版装的是空壳，不带第三方代码），
+   而这一套里有两处要验的正是"拦截器有没有装到**最外层**窗口"——
+   那只有注入版做得到。所以那两处用当场拼的注入版，并且把出厂开关打开
+   （注入版默认也是关的）。别的场景照旧用库内那份默认版。 */
+const PANEL_SRC_AT_ON = (() => {
+  new Function('globalThis', fs.readFileSync(P('tools', 'gui', 'lib', 'panelconfig.js'), 'utf8'))(globalThis);
+  const PC = globalThis.PresetPanelConfig;
+  const at = composePanel({ root: ROOT, withAntitrunc: true }).src;
+  return PC.patchConfig(at, PC.mergeConfig(PC.extractConfig(at), { antitrunc: { enabled: true } }));
+})();
 
 /* ── 造一个可以嵌套的假 window/document ───────────────────────────── */
 function makeFrame(label, { bodyReady = true, ballRect = null } = {}) {
@@ -174,7 +186,7 @@ console.log('[1] 两层嵌套 iframe → 必须挂到最顶层');
   const fetches = { top: top.win.fetch, mid: mid.win.fetch, inner: inner.win.fetch };
 
   loadIn(inner.win, HOST_SRC);
-  loadIn(inner.win, PANEL_SRC);
+  loadIn(inner.win, PANEL_SRC_AT_ON);
   await settle(8);
 
   const rootTop = top.doc.getElementById('fano-preset-panel-v1-root');
@@ -229,7 +241,7 @@ console.log('\n[3] 父窗口跨域（parent.document 抛异常）→ 退回本�
   const innerFetch0 = inner.win.fetch;
 
   loadIn(inner.win, HOST_SRC);
-  loadIn(inner.win, PANEL_SRC);
+  loadIn(inner.win, PANEL_SRC_AT_ON);
   await settle(8);
 
   const rootLocal = inner.doc.getElementById('fano-preset-panel-v1-root');
@@ -335,6 +347,38 @@ console.log('\n[6] 悬浮球跑飞时自动换挂载点');
   ok('diagnose 报出挂载点已改', d.mountedOn === 'documentElement', d.mountedOn);
   ok('diagnose 带上了位置校验结果', !!d.placement, JSON.stringify(d.placement));
   ok('改挂后不再播报"跑飞"', !said.some((m) => /视口外/.test(m)), said.join(' | '));
+}
+
+/* ── 情形 7：库内那份**默认**面板（防截断未注入）────────────────────
+   默认那版里坐着的是我们自己写的空壳：它照样要能把面板挂到最外层窗口
+   （挂载这件事跟防截断无关），但**三层 fetch 一个都不许碰**——
+   这正是"别人的代码不默认装出去"这条口径的可执行形式。 */
+console.log('\n[7] 默认那版（防截断未注入）：不碰任何一层的 fetch');
+{
+  const top = makeFrame('top');
+  const mid = makeFrame('mid');
+  const inner = makeFrame('inner');
+  inner.win.parent = mid.win;
+  mid.win.parent = top.win;
+  top.win.parent = top.win;
+  const fetches = { top: top.win.fetch, mid: mid.win.fetch, inner: inner.win.fetch };
+
+  loadIn(inner.win, HOST_SRC);
+  loadIn(inner.win, PANEL_SRC);
+  await settle(8);
+
+  const root = top.doc.getElementById('fano-preset-panel-v1-root');
+  ok('默认那版照样挂到最外层（挂载与防截断无关）', !!root);
+  /* 空壳没有"宿主窗口"这个概念（它什么都不做），所以控制台 API 挂在**脚本自己那层**窗口上；
+     真模块是爬到最外层再挂的（上面 [1] 那节验的就是它）。 */
+  const at = inner.win.__FANO_ANTITRUNC__ || top.win.__FANO_ANTITRUNC__;
+  ok('控制台 API 在（空壳挂在脚本自己那层），且自报 available=false',
+    !!at && at.available === false, at ? JSON.stringify({ available: at.available }) : '没有 __FANO_ANTITRUNC__');
+  ok('三层窗口的 fetch 一个都没被动过（windows 里没有那段代码）',
+    top.win.fetch === fetches.top && mid.win.fetch === fetches.mid && inner.win.fetch === fetches.inner);
+  ok('空壳也照旧"关着"，不会因为开关状态而撒谎',
+    at.isEnabled() === false && at.installed() === false
+    && at.setEnabled(true).installed === false);
 }
 
 console.log('\n────────────────────────────────────────');

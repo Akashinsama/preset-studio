@@ -20,7 +20,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { needAll } from './lib/fixtures.mjs';
+import { needAll, isSynthetic } from './lib/fixtures.mjs';
 
 /* 夹具守卫：折叠链要两种思维链形态的对照样本（见 samples/README.md）。 */
 needAll(['Kemini_Dramatron_v3.1.json', 'Izumi_0914.json'], '折叠链生成（两种思维链形态的对照样本）');
@@ -161,9 +161,21 @@ console.log(`角色名一律保留：泉此方×${iz.after.split('泉此方').le
   + ` Konata×${iz.after.split('Konata').length - 1 + km.after.split('Konata').length - 1}`);
 console.log('\n已写出 preset/fano-thinking-chain.json');
 
-fs.writeFileSync(P('preset', 'regex-manifest.json'), JSON.stringify({
-  $comment: '统一思维链折叠链。按数组顺序套用：先处理多块（Kemini 形态），剩下的单块走 Izumi 形态。',
-  displayText: FOLD_TEXT,
-  rule: '1 块 → Izumi 形态；≥2 块 → Kemini 形态',
-  items: chain.map((r) => ({ id: r.id, name: r.scriptName, findRegex: r.findRegex })),
-}, null, 2), 'utf8');
+/* preset/regex-manifest.json 是**进库的规格**（不是产物）：它记的是这条折叠链的
+   "模式"——1 块走单块形态、≥2 块走多块形态。这份规格是当年拿**真预设**推出来的，
+   所以**只有真夹具才许覆盖它**：喂合成夹具时推出来的"模式"是拿占位数据反推的，
+   写进去等于用一个假的规格盖掉真的，而且看起来一切正常（与 fixtures.mjs 里
+   needReal() 的理由完全一样）。缺真夹具就跳过，并说清为什么。 */
+const REAL_FIXTURES = !isSynthetic('Izumi_0914.json') && !isSynthetic('Kemini_Dramatron_v3.1.json');
+if (REAL_FIXTURES) {
+  fs.writeFileSync(P('preset', 'regex-manifest.json'), JSON.stringify({
+    $comment: '统一思维链折叠链。按数组顺序套用：先处理多块（Kemini 形态），剩下的单块走 Izumi 形态。',
+    displayText: FOLD_TEXT,
+    rule: '1 块 → Izumi 形态；≥2 块 → Kemini 形态',
+    items: chain.map((r) => ({ id: r.id, name: r.scriptName, findRegex: r.findRegex })),
+  }, null, 2), 'utf8');
+  console.log('已写出 preset/regex-manifest.json（用的是真夹具）');
+} else {
+  console.log('跳过 preset/regex-manifest.json：现在这份是**合成夹具**，它的"模式"是占位数据反推出来的，');
+  console.log('  不能拿去覆盖进库的规格（真夹具优先；把真预设放成同名再跑这一句就会重写）。');
+}

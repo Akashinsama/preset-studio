@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { spawnSync } from 'node:child_process';
 import { needAll } from './lib/fixtures.mjs';
 
 /* 夹具守卫：包内自检要对着**成品预设**跑（解析 → 拼装 → 改 → 导出 → 面板）。
@@ -245,12 +246,22 @@ for (const f of ['README.md', '使用说明.md', '说明书.md', 'tools/gui/inde
   'tools/gui/demo/fano-demo.js', 'panel/preview.html', 'panel/preview-host.js', 'spec/groups.json']) {
   ok(`有 ${f}`, fs.existsSync(P(f)));
 }
+/* 标准纸与它的编辑器副本：这是"clone 下来双击就有样例"的落脚点，
+   两边必须都在、而且是同一份（不一致就会"页面里的样例跟测试量到的不是一张纸"）。 */
+ok('有标准纸 samples/标准纸.json', fs.existsSync(P('samples', '标准纸.json')));
+const paperJs = P('tools', 'gui', 'demo', 'paper-demo.js');
+ok('有编辑器用的演示纸 tools/gui/demo/paper-demo.js', fs.existsSync(paperJs));
+if (fs.existsSync(paperJs) && fs.existsSync(P('samples', '标准纸.json'))) {
+  const r = spawnSync(process.execPath, [P('tools', 'build-demo-paper.mjs'), '--check'], { cwd: ROOT, encoding: 'utf8' });
+  ok('演示纸与标准纸一致（node tools/build-demo-paper.mjs --check）', r.status === 0,
+    (r.stdout || '').trim().split('\n').slice(-1)[0] || String(r.status));
+}
 const demoTag = /<script src="(demo\/[^"]*demo\.js)"><\/script>/.exec(fs.readFileSync(P('tools', 'gui', 'index.html'), 'utf8'));
 ok('编辑器引的示例数据文件在（file:// 下少一个文件就是白屏）',
   !!demoTag && fs.existsSync(P('tools', 'gui', demoTag[1])), demoTag ? demoTag[1] : '没找到那一行');
 if (demoTag && demoTag[1] !== 'demo/fano-demo.js') {
-  console.log(`  注：这份编辑器引的是 ${demoTag[1]}（开发环境用别人的预设当素材跑测试）；`
-    + '发布包里它会被换成 demo/fano-demo.js（node tools/build-package.mjs 会强制检查）。');
+  console.log(`  注：这份编辑器引的是 ${demoTag[1]}——**我们自己的标准纸**（演示与测试共用一张）。`
+    + ' 发布包里它会被换成 demo/fano-demo.js（成品预设的快照，node tools/build-package.mjs 会强制检查）。');
 }
 
 /* ── 结果 ──────────────────────────────────────────────────────────── */

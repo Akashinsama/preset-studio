@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { zip } from './lib/zip.mjs';
-import { needAll } from './lib/fixtures.mjs';
+import { needAll, has, isSynthetic } from './lib/fixtures.mjs';
 
 /* 夹具守卫：成品预设是把三份源预设的条目按锚点重排出来的，缺一份就没法组装。 */
 needAll(['Izumi_0914.json', 'Kemini_Dramatron_v3.1.json', '梦鲸思客V4-0915.json'],
@@ -325,9 +325,20 @@ if (tampered.length) {
 
 /* ── 9. extensions ──────────────────────────────────────────────── */
 const thinkChain = JSON.parse(fs.readFileSync(P('preset', 'fano-thinking-chain.json'), 'utf8'));
-/* 另外 7 条正则（正文美化 3 + 防截断过滤 2 + 选项栏 2）：从 v2.8.1 那支原样移植过来，
-   放在 preset/fano-regex-extra.json 当数据。 */
-const extraRegexes = JSON.parse(fs.readFileSync(P('preset', 'fano-regex-extra.json'), 'utf8'));
+/* 另外 7 条正则（正文美化 3 + 防截断过滤 2 + 选项栏 2）：**从上游预设原样移植过来的**
+   （原作 Kemini Dramatron v3.1；出处与"作者主张权利即删除"见 NOTICE.md），
+   放在 preset/fano-regex-extra.json 当数据。
+
+   和面板的脚本层防截断一样，这是**可选**的：**默认不并进成品**，要它得显式打开——
+     node tools/build-preset.mjs --with-extra-regex
+   理由同那一段：借来的代码不默认装出去。名字与出处都留在数据文件里，删掉也只是少这 7 条规则。 */
+const WITH_EXTRA_REGEX = process.argv.includes('--with-extra-regex') || process.env.FANO_WITH_EXTRA_REGEX === '1';
+const extraRegexes = WITH_EXTRA_REGEX
+  ? JSON.parse(fs.readFileSync(P('preset', 'fano-regex-extra.json'), 'utf8'))
+  : [];
+console.log(WITH_EXTRA_REGEX
+  ? '（--with-extra-regex：把那 7 条借来的正则并进成品——出处见 NOTICE.md）'
+  : '（默认不并入那 7 条借来的正则；要它加 --with-extra-regex）');
 const panelCode = fs.readFileSync(P('panel', 'fano-panel.js'), 'utf8');
 
 /* 顶部脚本按钮的**静态声明**（酒馆助手不认运行时注册，见下面的注释）：
@@ -451,6 +462,18 @@ ordered.slice(0, 40).forEach((e, i) => {
   R.push(`  ${String(i + 1).padStart(3)} [${e.finalEnabled ? '开' : '关'}] ${String(e.source).padEnd(7)} ${e.name || '(无名)'}`);
 });
 
-fs.writeFileSync(P('preset', 'build-report.txt'), R.join('\n') + '\n', 'utf8');
-console.log(R.join('\n'));
-console.log('\n已写出 preset/' + outFile + ' 与 preset/build-report.txt');
+/* preset/build-report.txt 是**进库的元数据**（用来核对"成品是怎么拼出来的"）：
+   它记的必须是**真成品**的形状。喂合成夹具时这份报告是拿占位数据写出来的，
+   写进去等于用假的盖掉真的（与 fixtures.mjs 的 needReal、build-regex 里那份
+   regex-manifest.json 的守卫同一个理由）。所以：只有三份来源都是**真夹具**才写。 */
+const REAL_FIXTURES = ['Izumi_0914.json', 'Kemini_Dramatron_v3.1.json', '梦鲸思客V4-0915.json']
+  .every((f) => has(f) && !isSynthetic(f));
+if (REAL_FIXTURES) {
+  fs.writeFileSync(P('preset', 'build-report.txt'), R.join('\n') + '\n', 'utf8');
+  console.log(R.join('\n'));
+  console.log('\n已写出 preset/' + outFile + ' 与 preset/build-report.txt');
+} else {
+  console.log(R.join('\n'));
+  console.log(`\n已写出 preset/${outFile}`);
+  console.log('跳过 preset/build-report.txt：这次用的是**合成夹具**，报告不能拿占位数据去覆盖进库的元数据。');
+}

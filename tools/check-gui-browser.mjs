@@ -103,12 +103,18 @@ const PASSES = [
         return !/假装是酒馆页面背景/.test(pageBody);
       })();
       return [
+        /* 判据是**关系**不是规模：画布画出了至少一个分节/功能区，每个功能区的两个
+           「＋」按钮成对出现，属性栏恰好一个。
+           （原来写的是"分节 ≥5 / 功能区 ≥20 / ＋按钮 ≥20"——那是在量演示纸有多大：
+             纸一换（换成我们自己的标准纸）就红，红的不是画布坏了。） */
         [`${secs} 个分节 · ${mods} 个功能区 · ${addItem} 个「＋功能项」· ${addOpt} 个「＋功能选项」· 属性栏 ${props ? '在' : '缺'}`,
-          secs >= 5 && mods >= 20 && addItem >= 20 && addOpt >= 20 && props === 1],
+          secs >= 1 && mods >= 1 && addItem >= 1 && addItem === addOpt && props === 1],
         [`画布用的是面板真实结构（.fp-win / .fp-bglayer 都在）· 没有"假装背景"那类文字混进来`,
           panelReal && noFakeHint],
-        [`分节可点（${count(dom, /title="点一下改这个分节"/g)} 个）· 面板质检 ${/面板质检/.test(dom) ? '在' : '缺'} · ＋新建分区 ${/＋新建分区/.test(dom) ? '在' : '缺'}`,
-          count(dom, /title="点一下改这个分节"/g) >= 5 && /面板质检/.test(dom) && /＋新建分区/.test(dom)],
+        /* 分节可点 = 每个分节标题都能点开；面板质检卡片**只在有发现时才画**，
+           所以这里不要求它出现（没有发现 = 好事，不是缺件）。 */
+        [`分节可点（${count(dom, /title="点一下改这个分节"/g)} 个 / 共 ${secs} 个）· 面板质检 ${/面板质检/.test(dom) ? '有发现并画出来了' : '没有发现（卡片不画）'} · ＋新建分区 ${/＋新建分区/.test(dom) ? '在' : '缺'}`,
+          count(dom, /title="点一下改这个分节"/g) === secs && secs >= 1 && /＋新建分区/.test(dom)],
       ];
     },
   },
@@ -153,8 +159,11 @@ const PASSES = [
       const rows = count(dom, /<tr>/g);
       const addForm = count(dom, /class="addform"/g);
       return [
+        /* 同样改成关系：一行一个条目、每行一个可改名字的输入框、每行有移动/删除两个按钮
+           （首行不能上移、末行不能下移，所以是 (行数-1)×2）。
+           原来写的是"输入框 ≥100、按钮 ≥100"——那是在量纸。 */
         [`${rows} 行表格 · ${names} 个可改名字输入框 · ${moves} 个移动/删除按钮 · 新增表单 ${addForm ? '在' : '不在'}`,
-          names >= 100 && moves >= 100 && addForm === 1],
+          rows >= 2 && names === rows && moves === (rows - 1) * 2 && addForm === 1],
       ];
     },
   },

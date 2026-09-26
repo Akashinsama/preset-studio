@@ -17,7 +17,18 @@
 | `preview.html` | **离线预览**。双击就能在浏览器里看，用的是内存假数据和假的酒馆助手 API。 |
 | `preview-host.js` | 预览用的假数据（三份源预设的条目并集，393 条），自动生成。 |
 | `src/panel-core.js` | 面板源码。 |
-| `src/antitrunc.js` | **脚本层防截断**（从「芳乃预设 v2.8.1」那条脚本原样移植）。构建时被整体注入 `fano-panel.js` 的 `FANO_ANTITRUNC_BEGIN/END` 之间；开关是顶部「🛡 防截断」按钮，键 `fano-antitrunc-v1`。搬了哪些、改了哪几处见 `spec/防截断移植对照.md`。 |
+| `src/antitrunc.js` | **脚本层防截断**——**借来的代码**：原作 Kemini Dramatron v3.1 的 `scripts[0]`（作者 Kemini），经作者的芳乃预设 v2.8.1 原样移植。**默认不注入**（见下）；要它得显式打开。出处与"主张权利即删除"见 `NOTICE.md`，搬了哪些、改了哪几处见 `spec/防截断移植对照.md`。 |
+| `src/antitrunc-stub.js` | **默认那份**里坐着的空壳（本工程自己写的）：API 同名同形但什么都不做，`available=false`——所以默认产物里一个字节的第三方代码都没有，而且面板会直说"这版没装"，不假装能干活。 |
+
+### 防截断是**可选注入**（默认不装）
+
+```bash
+node tools/build-panel.mjs                    # 默认：装空壳，不含第三方代码
+node tools/build-panel.mjs --with-antitrunc   # 注入真模块（借自 Kemini，出处见 NOTICE.md）
+```
+
+拼装逻辑在 `tools/lib/panel-compose.mjs`（构建脚本、编辑器快照、测试共用同一条路）。
+`CONFIG.antitrunc.enabled` 出厂是 `false`；只有真装了模块、且开关打开，顶部才会出现「🛡 防截断」按钮。
 
 ## 装进酒馆
 

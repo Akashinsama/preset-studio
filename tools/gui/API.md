@@ -241,7 +241,10 @@ const PP = globalThis.PresetParse;
 | `patchBlock(src, declName, value)` | 把该字面量替换为 `JSON.stringify(value, null, 2)`（每行再缩进 2 空格）。**只替换字面量本身**，找不到声明抛错 |
 | `extractGroups(src)` | `extractBlock(src, 'GROUPS_OVERRIDE')` 的简写 |
 | `patchGroups(src, override)` | `patchBlock(src, 'GROUPS_OVERRIDE', override)` 的简写（`null` 表示回到面板自带分组） |
-| `extractDefaults(src)` | 面板自带的分组素材：`{ groups[], sections[], thinkingTags[], display }`（实测成品面板 `groups` 25 个） |
+| `extractDefaults(src)` | 面板自带的分组素材：`{ groups[], sections[], thinkingTags[], display }`（成品面板里 `groups` 是 `spec/groups.json` 注入的那一套） |
+| `antitruncVariant(src)` | 这份面板源码里装的是哪一版防截断：`'real'`（借自 Kemini 的那段）/ `'stub'`（我们自己写的空壳）/ `'none'`（老面板，没有这一段） |
+| `antitruncSlot(src)` | 那一段的**位置与文本**（两端哨兵 `AT_SLOT_BEGIN` / `AT_SLOT_END` 之间，含哨兵行）；找不到返回 `null`——老面板或另一支面板就是这种 |
+| `withAntitrunc(src, variantSrc)` | 把 `src` 里那一段整体换成 `variantSrc` 里那一段（两版已经一样就原样返回）。**"注入防截断"这个勾选项就是靠它落地的**：换的是整段代码，不是只改 `CONFIG.antitrunc.enabled` 那个开关——"代码在不在"和"开关开不开"是两回事。找不到哨兵就抛错（调用方该保留原样并说清原因，别把用户的面板写坏） |
 | `neutralizeBrand(src)` | 把源码里"芳乃"字样换成中性说法（逐条替换表见 `BRAND_PATTERNS`）。面板源码本体不动——只在**装进别人的预设**时用 |
 | `findBrand(src)` | 源码里还剩哪些「芳乃」→ `[{ text, index }]`。**这是绊线**：换完必须为空，否则说明面板源码里新加了字样 |
 | `neutralizeData(value)` | 同上，但对**分组数据**逐层做（数组/对象/键名/字符串都过一遍）。**只用在草稿上**：草稿多半是从面板自带那份（芳乃的清单）复制来的；从目标预设**推断**出来的分组是那份预设自己的条目名，一个字都别动 |

@@ -65,8 +65,11 @@
     window: { w: 380, h: 620, minW: 260, minH: 200, maxW: 0, maxH: 0 },
     layout: { radius: 14, scale: 1, fontScale: 1, opacity: 1, blur: 14 },
     wallpaper: { url: '', fit: 'cover', opacity: 0.35, blur: 0, dim: 0.15, dimColor: '#000000', enabled: true },
-    /* 脚本层防截断的出厂开关（真正的状态在 localStorage 的 fano-antitrunc-v1）。 */
-    antitrunc: { enabled: true },
+    /* 脚本层防截断的出厂开关（真正的状态在 localStorage 的 fano-antitrunc-v1）。
+       **默认关**：那段实现借自 Kemini Dramatron v3.1（出处见 NOTICE.md），
+       按作者口径不默认装出去——要它就在「面板外观」里勾「注入防截断」，
+       勾了会把那一版面板源码一起换掉（见 withAntitrunc）。 */
+    antitrunc: { enabled: false },
     /* 顶部脚本按钮：名字要与预设里静态声明的两个一致（tools/build-preset.mjs 读这里）。 */
     button: { enabled: true, panel: '🙈 隐藏', antitrunc: '🛡 防截断' },
     /* 长按条目改正文：按住多少毫秒算长按（enabled=false 就关掉这个手势）。 */
@@ -205,6 +208,46 @@
 
   const extractGroups = (src) => extractBlock(src, 'GROUPS_OVERRIDE');
   const patchGroups = (src, override) => patchBlock(src, 'GROUPS_OVERRIDE', override);
+
+  /* ── 脚本层防截断：**可选注入**的两版源码之间整段换 ──────────────────
+     那一版面板里装的是"空壳"（本工程自己写的，什么都不做）还是"真模块"
+     （**借自 Kemini Dramatron v3.1**，出处与"作者主张权利即删除"见 NOTICE.md），
+     由构建期决定（tools/lib/panel-compose.mjs）。编辑器要让用户在两者之间选，
+     所以这里提供"整段换"的能力：把两个哨兵注释之间的那一段整体替换掉，
+     别的字符一个都不动——和 patchConfig / patchGroups 是同一种手术。
+
+     为什么换整段而不是只改 CONFIG.antitrunc.enabled：那个键只是"开关"，
+     空壳版里开着它也什么都不做。**代码在不在，是两回事**，得换段。 */
+  const AT_SLOT_BEGIN = '/* __FANO_ANTITRUNC_SLOT_BEGIN__ */';
+  const AT_SLOT_END = '/* __FANO_ANTITRUNC_SLOT_END__ */';
+  const AT_STUB_MARK = '__FANO_ANTITRUNC_STUB__';
+
+  /** 这份面板源码里装的是哪一版防截断：'real' | 'stub' | 'none'（老面板：没有这一段） */
+  function antitruncVariant(src) {
+    const s = String(src ?? '');
+    if (s.includes(AT_STUB_MARK)) return 'stub';
+    if (/function\s+createAntiTruncation\s*\(/.test(s)) return 'real';
+    return 'none';
+  }
+
+  /** 哨兵之间那一段（含哨兵行本身）；找不到返回 null */
+  function antitruncSlot(src) {
+    const s = String(src ?? '');
+    const a = s.indexOf(AT_SLOT_BEGIN);
+    const b = s.indexOf(AT_SLOT_END);
+    if (a < 0 || b < 0 || b < a) return null;
+    return { start: a, end: b + AT_SLOT_END.length, text: s.slice(a, b + AT_SLOT_END.length) };
+  }
+
+  /** 把 src 的防截断那一段换成 variantSrc 的（已经是同一版就原样返回，diff 才干净） */
+  function withAntitrunc(src, variantSrc) {
+    const a = antitruncSlot(src);
+    const b = antitruncSlot(variantSrc);
+    if (!a || !b) throw new Error('这份面板脚本里找不到防截断注入点（哨兵注释）——'
+      + '它是老面板或另一支面板，换不了那一版');
+    if (a.text === b.text) return src;
+    return src.slice(0, a.start) + b.text + src.slice(a.end);
+  }
 
   /**
    * 面板**自带**的分组 / 分节 / 互斥组 / 显示名（构建期注入的那些）。
@@ -435,11 +478,11 @@
       },
       /* 下面两段必须与面板 CFG 的写法**一模一样**（含字段顺序）：
          test-panelconfig.mjs 会把两边的生效值 JSON 逐字段比。
-         规则：只认显式 false → 一律"关"；其余（没写 / 写错 / null）当"开"。
+         规则：只认显式 true → 一律"开"；其余（没写 / 写错 / null）当"关"。
          少了这两段，外观页一保存就会把 antitrunc/button 这两个键写回默认值——
-         用户明明关掉的东西会被悄悄打开。 */
+         用户明明开出来的东西会被悄悄关回去。 */
       antitrunc: {
-        enabled: c.antitrunc?.enabled !== false,
+        enabled: c.antitrunc?.enabled === true,
       },
       button: {
         enabled: c.button?.enabled !== false,
@@ -595,6 +638,7 @@
     DEFAULT_THEME_KEYS: TOKEN_KEYS,
     extractConfig, extractThemes, extractCss, extractFallbackTitle, patchConfig, mergeConfig, clampConfig,
     extractBlock, patchBlock, extractGroups, patchGroups, extractDefaults,
+    antitruncVariant, withAntitrunc, antitruncSlot, AT_SLOT_BEGIN, AT_SLOT_END,
     BRAND_PATTERNS, neutralizeBrand, findBrand, neutralizeData, foreignPanelSource,
     toCssVars, scaleCss, scaleFontCss, hasWallpaper, validateConfig, changedTokens, estimateDataUrlBytes,
     findLiteral, parseLiteral,

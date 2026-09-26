@@ -56,14 +56,17 @@ if (missing.length) {
 }
 
 /* 就绪状态：index.html 里那一行演示数据必须正好是我们认得的写法，
-   否则"换示例素材"这一步会静默失败——包里就会带着别人的预设发出去。 */
+   否则"换示例素材"这一步会静默失败——包里就会带着不该带的东西发出去。
+   仓库里那一行引的是**标准纸**（demo/paper-demo.js）；包里换成**成品预设的快照**
+   （demo/fano-demo.js）：这是"芳乃预设生成器"这个包自己的示例素材。
+   两张纸都是我们自己的，谁都不含第三方正文。 */
 const IDX = P('tools', 'gui', 'index.html');
 const idxSrc = fs.readFileSync(IDX, 'utf8');
-const DEMO_TAG_OLD = '<script src="demo/izumi-demo.js"></script>';
+const DEMO_TAG_OLD = '<script src="demo/paper-demo.js"></script>';
 const DEMO_TAG_NEW = '<script src="demo/fano-demo.js"></script>';
 if (!idxSrc.includes(DEMO_TAG_OLD)) {
   console.error(`index.html 里找不到那一行演示数据（${DEMO_TAG_OLD}）——`
-    + '编辑器是不是改过？这一行必须存在，打包要把它换成芳乃预设。');
+    + '编辑器是不是改过？这一行必须存在，打包要把它换成成品预设那份快照。');
   process.exit(2);
 }
 
@@ -101,20 +104,19 @@ const copyDir = (relDir, destDir = relDir, skip = () => false) => {
   }
 };
 
-/* ── 2. 编辑器本体：整个 tools/gui 端过去，只把 Izumi 那份演示数据剔除 ── */
+/* ── 2. 编辑器本体：整个 tools/gui 端过去 ───────────────────────────── */
 copyDir('tools/gui', 'tools/gui', (rel, name) => {
-  if (name === 'izumi-demo.js') return true;                 // 别人的预设，不进包
   if (/_browser-check\.html$/.test(name)) return true;       // check-browser 的临时产物
   return false;
 });
-/* 换演示数据：改成"只有芳乃预设这一份" */
+/* 换演示数据：仓库里那份标准纸 → 包里这份成品预设快照 */
 const idxOut = idxSrc.replace(DEMO_TAG_OLD, DEMO_TAG_NEW);
-if (!idxOut.includes(DEMO_TAG_NEW) || idxOut.includes('izumi-demo.js')) {
-  console.error('换演示数据失败——index.html 里还有 izumi-demo.js 的引用，包会被打歪。');
+if (!idxOut.includes(DEMO_TAG_NEW) || idxOut.includes('paper-demo.js')) {
+  console.error('换演示数据失败——index.html 里还有 paper-demo.js 的引用，包会被打歪。');
   process.exit(2);
 }
 fs.writeFileSync(path.join(OUT, 'tools', 'gui', 'index.html'), idxOut, 'utf8');
-console.log(`已改示例素材：demo/izumi-demo.js → demo/fano-demo.js`);
+console.log(`已改示例素材：demo/paper-demo.js（标准纸）→ demo/fano-demo.js（成品预设快照）`);
 
 /* ── 3. 面板 / 成品预设 / 规格 / 文档 ──────────────────────────────── */
 copyDir('panel', 'panel', (rel, name) => name.startsWith('_') || name === 'browser-check.html.tmp');
@@ -186,12 +188,19 @@ const walk = (dir, out = []) => {
 const files = walk(OUT).sort();
 const totalBytes = files.reduce((n, f) => n + fs.statSync(path.join(OUT, f)).size, 0);
 
-/* 自证 1：包里绝不能出现别人的预设 */
-const leaked = files.filter((f) => /izumi/i.test(f));
-if (leaked.length) { console.error('包里混进了不该有的文件：' + leaked.join('、')); process.exit(2); }
-/* 自证 2：示例数据必须是芳乃，而且是**唯一**一份 */
+/* 自证 1：包里绝不能出现**别人的预设**那份演示数据（按名字认；内容层面的第三方代码
+   只有 panel/src/antitrunc.js 一处，那是注明出处的可选注入件，见 NOTICE.md） */
+const leaked = files.filter((f) => /izumi|kemini|梦鲸/i.test(f));
+if (leaked.length) {
+  console.error('包里混进了不该有的文件：' + leaked.join('、'));
+  console.error('  多半是仓库里留着上一版生成的旧演示数据（tools/gui/demo/izumi-demo.js 之类）——'
+    + '现在的演示数据是标准纸与成品快照，删掉那些旧文件再打包。');
+  process.exit(2);
+}
+/* 自证 2：编辑器引的示例数据必须在包里、且是成品快照那一份
+   （仓库里引的是标准纸，包里换成成品快照；两份都是我们自己的） */
 const demoFiles = files.filter((f) => /^tools\/gui\/demo\/.*-demo\.js$/.test(f));
-if (!demoFiles.includes('tools/gui/demo/fano-demo.js')) { console.error('包里没有芳乃示例数据'); process.exit(2); }
+if (!demoFiles.includes('tools/gui/demo/fano-demo.js')) { console.error('包里没有成品预设的示例数据'); process.exit(2); }
 if (!/demo\/fano-demo\.js/.test(fs.readFileSync(path.join(OUT, 'tools/gui/index.html'), 'utf8'))) {
   console.error('包里的 index.html 没有引用芳乃示例数据'); process.exit(2);
 }

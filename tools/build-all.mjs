@@ -5,9 +5,10 @@
  *   node tools/build-all.mjs
  *
  * 它按依赖顺序调用：
+ *   build-demo-paper → 标准纸（samples/标准纸.json）→ 编辑器演示数据
  *   make-fixture  → 造合成夹具（结构来自 spec/，正文占位，不含任何预设正文）
  *   build-regex   → 思维链折叠链
- *   build-panel   → 面板脚本（只用 panel/src + spec/groups.json）
+ *   build-panel   → 面板脚本（只用 panel/src + spec/groups.json；默认**不注入**防截断）
  *   build-preset  → 组装出一份样例预设
  *   build-preview → 假酒馆宿主（面板测试要用）
  *   build-gui-demo→ 页面演示数据
@@ -27,7 +28,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const STEPS = ['make-fixture', 'build-regex', 'build-panel', 'build-preset', 'build-preview', 'build-gui-demo', 'build-package'];
+const STEPS = ['build-demo-paper', 'make-fixture', 'build-regex', 'build-panel', 'build-preset', 'build-preview', 'build-gui-demo', 'build-package'];
 
 console.log('整条链（缺夹具会自动造合成夹具；真实预设优先）\n');
 for (const step of STEPS) {

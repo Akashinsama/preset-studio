@@ -333,15 +333,25 @@ ok('面板脚本已启用', panel?.enabled === true);
 ok('面板脚本里注入了 groups', (panel?.content ?? '').includes('"jailbreak"'));
 ok('面板脚本里含芳乃配色 token', (panel?.content ?? '').includes('--fp-accent'));
 const regexes = ext.regex_scripts ?? [];
-/* 折叠链那 4 条的位置**不能写死**了：链前面还排着 7 条从 v2.8.1 移植来的正则
+/* 折叠链那 4 条的位置**不能写死**：链前面可能还排着 7 条**从上游预设移植来的**正则
    （正文美化 3 + 防截断过滤 2 + 选项栏 2）。所以这里按**名字**把链挑出来再逐条判，
-   其余那 7 条不适用"折叠文案 / 只改显示"这类断言（选项栏过滤那条本来就是 promptOnly）。 */
+   那 7 条不适用"折叠文案 / 只改显示"这类断言（选项栏过滤那条本来就是 promptOnly）。
+
+   那 7 条现在是**可选**的（默认不并入成品，要它得跑 build-preset --with-extra-regex）——
+   理由：那是借来的代码，不默认装出去（见 NOTICE.md）。所以这里判的不是"有没有"，
+   而是"**默认那份里不该有**"；想看它们真在的时候长什么样，加 --with-extra-regex 重新构建。 */
 const chain = regexes.filter((r) => /^芳乃思维链 · /.test(String(r.scriptName)));
 ok('内嵌了统一思维链折叠链（4 条）', chain.length === 4, `${chain.length} 条（正则共 ${regexes.length} 条）`);
 ok('折叠链顺序正确（前两条 Kemini 形态，后两条 Izumi 形态）',
   chain.slice(0, 2).every((r) => String(r.replaceString).includes('fano_thinking'))
   && chain.slice(2).every((r) => String(r.replaceString).includes('konata-thinking-details')));
-ok('移植来的那 7 条也在（正文美化 / 防截断过滤 / 选项栏）', regexes.length === 11, `${regexes.length} 条`);
+const EXTRA_NAMES = /^芳乃正文 · /;
+const extraIn = regexes.filter((r) => EXTRA_NAMES.test(String(r.scriptName)));
+const WITH_EXTRA = process.argv.includes('--with-extra-regex') || process.env.FANO_WITH_EXTRA_REGEX === '1';
+ok(WITH_EXTRA
+  ? '移植来的那 7 条已在（--with-extra-regex）'
+  : '默认那份里**没有**那 7 条移植来的正则（借来的代码不默认装出去）',
+WITH_EXTRA ? extraIn.length === 7 : extraIn.length === 0, `${extraIn.length} 条 / 正则共 ${regexes.length} 条`);
 for (const r of chain) {
   const sum = (String(r.replaceString).match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/i) || [])[1] ?? '';
   const text = sum.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();

@@ -4,11 +4,20 @@
 体检、改结构、配面板外观、甚至从零搭一份；另配一个悬浮窗面板脚本（芳乃配色）。
 不用 Node、不用服务器、不联网，**不改你的任何文件**——导出永远是"另存为"。
 
-> ## ⚠️ 这个仓库里没有预设正文
+> ## ⚠️ 这里面哪些是"别人的"、哪些是"我们自己的"
 >
-> 这里发的是**工具与文档**，不是预设。开发期用来当样本的那些预设属于各自的作者，
-> **不进这个仓库**（原因与署名见 [`NOTICE.md`](NOTICE.md)）。
-> 所以依赖样例预设的测试会打印 `SKIP` 并正常退出——**没跑 ≠ 通过**；
+> - **别人的正文**：一个字都没有。开发期当样本的那三份预设属于各自的作者，**不进这个仓库**。
+> - **借来的名字**：`spec/` 里那些模块名与条目名是借来当接口用的（作者明确接受这一层）。
+>   名单与理由见 [`NOTICE.md`](NOTICE.md)。
+> - **借来的代码**：全库**只有两处**，都注明出处、都做成**可选**、**默认都不装出去**——
+>   面板的脚本层防截断（`panel/src/antitrunc.js`）与 7 条正文正则（`preset/fano-regex-extra.json`）。
+>   要它们得显式打开（`node tools/build-panel.mjs --with-antitrunc` /
+>   `node tools/build-preset.mjs --with-extra-regex`，或在编辑器「面板外观」里勾选）。
+>   **若原作者主张权利，我们即删除**——两处都做成可选，就是为了让"删掉"是一句话的事。
+> - **我们自己的纸**：`samples/标准纸.json`——演示与测试都用这一张，
+>   clone 下来双击 `tools/gui/index.html` 就有样例可看，不用先跑任何构建脚本。
+>
+> 依赖真实样本的少数步骤会打印 `SKIP` 并正常退出——**没跑 ≠ 通过**；
 > 想让它们真跑起来，按 [`samples/README.md`](samples/README.md) 放一份你自己的样例。
 
 ## 30 秒上手
@@ -25,24 +34,24 @@
 **先跑一句**（造合成夹具 + 把整条链跑完，之后所有测试都能真跑）：
 
 ```bash
-node tools/build-all.mjs          # make-fixture → build-regex → build-panel → build-preset
-                                  # → build-preview → build-gui-demo → build-package
+node tools/build-all.mjs          # build-demo-paper → make-fixture → build-regex → build-panel
+                                  # → build-preset → build-preview → build-gui-demo → build-package
 ```
 
 ```bash
-node tools/selftest.mjs           # 72 项   包内自检：库 + 面板 + 样例预设
+node tools/selftest.mjs           # 75 项   包内自检：库 + 面板 + 样例预设 + 演示纸
 node tools/test-regex.mjs         # 30 项   思维链折叠链逻辑
-node tools/test-gui.mjs           # 353 项  解析 / 拼装内核 + M3 编辑端到端
-node tools/test-panel.mjs         # 155 项  面板逻辑（假 DOM）
-node tools/test-panelconfig.mjs   # 101 项   面板外观配置夹取一致性
+node tools/test-gui.mjs           # 359 项  解析 / 拼装内核 + M3 编辑端到端
+node tools/test-panel.mjs         # 191 项  面板逻辑（假 DOM；含"默认那版不含借来的代码"）
+node tools/test-panelconfig.mjs   # 107 项  面板外观配置夹取一致性
 node tools/test-mobile.mjs        # 20 项   手机场景
-node tools/test-iframe.mjs        # 34 项   iframe 与时序
-node tools/check-preset.mjs       # 108 项  样例预设的独立校验
+node tools/test-iframe.mjs        # 38 项   iframe 与时序（含防截断可选注入的跨窗口行为）
+node tools/check-preset.mjs       # 109 项  样例预设的独立校验
 node tools/check-browser.mjs      # 58 项   面板布局（真浏览器，本机 Chrome/Edge）
 node tools/check-gui-browser.mjs  # 十屏    生成器 GUI 的 DOM 取证（真浏览器）
 ```
 
-实测：**790 项全绿**（上面除浏览器两层）+ 浏览器两层在合成夹具上同样通过。
+实测：**929 项全绿**（上面除浏览器两层）+ 浏览器两层在合成夹具上同样通过。
 
 > **这些不需要你先准备任何预设。** 缺夹具时 `tools/lib/fixtures.mjs` 会自动调
 > `tools/make-fixture.mjs` 造一份**合成夹具**：结构（条目名 / 槽位 / 顺序 / 开关）从 `spec/` 里
@@ -95,7 +104,13 @@ node tools/check-gui-browser.mjs  # 十屏    生成器 GUI 的 DOM 取证（真
 - **自定义内容（自己填）**：7 条要你敲内容的条目，都是真正的输入框。
 - **锚点（固定开启）**：12 条只读，不给开关——它们占住世界书/角色卡/主提示的注入位，切换模型也不会动。
 - 其余模块默认折起，点标题展开；折起时标题右边仍写着当前状态。
-- **🛡 防截断（顶部按钮）**：默认开。开了以后模型把正文放进一个合成函数调用的参数里回传，绕开「纯文本流被渠道掐断」那条路。开关存在浏览器里（键 `fano-antitrunc-v1`，**与 v2.8.1 那支共用**，换过来状态不丢）；关掉就把 `window.fetch` 上的包装整个摘掉。这一层是从 v2.8.1 搬来的，**逐项对照**（搬了哪些、改了哪几处、哪些没搬、哪些没验过）见 [`spec/防截断移植对照.md`](spec/防截断移植对照.md)。
+- **🛡 防截断（顶部按钮）**：**默认不装**。这一段（`panel/src/antitrunc.js`）是**借来的**——
+  原作 Kemini Dramatron v3.1 的 `scripts[0]`（作者 Kemini），出处与"主张权利即删除"见 `NOTICE.md`。
+  默认那版面板里坐着的是我们自己写的空壳（`panel/src/antitrunc-stub.js`）：什么都不做，也不会
+  摆一个按下去没反应的按钮。要用它：`node tools/build-panel.mjs --with-antitrunc`，
+  或在编辑器「面板外观 → 脚本层防截断（可选注入）」里勾选。
+  打开后模型把正文放进一个合成函数调用的参数里回传，绕开「纯文本流被渠道掐断」那条路；
+  开关存在浏览器里（键 `fano-antitrunc-v1`，**与 v2.8.1 那支共用**，换过来状态不丢）。
 - **长按条目改正文**：按住面板上任一条目（多选开关行、单选下拉下面那行"当前条目"、只读区里的名字）就打开它的正文编辑器，改完点保存——和其它操作一样**只写回预设一次**。手机上滑动就是滚动，不会误触；长按后紧跟的那次点击会被吞掉，所以不会顺手把条目开关掉。酒馆的**注入位标记**（聊天记录/角色卡/世界书这些位置标记）长按只给看：它们的正文必须为空，写进去会让对应内容进不了上下文。时长与开关在生成器的「面板外观 → 交互」里调。
 - 改完任何选项不会跳回顶部；每次操作只写回一次预设。
 
@@ -136,18 +151,19 @@ node tools/build-regex.mjs     # 统一思维链折叠链（4 条）
 node tools/build-panel.mjs     # 面板脚本
 node tools/build-preset.mjs    # 组装成品预设
 node tools/build-preview.mjs   # 预览假数据 ← 必须放在 preset 之后
-node tools/check-preset.mjs           # 成品独立校验（108 项）
+node tools/check-preset.mjs           # 成品独立校验（109 项）
 node tools/selftest.mjs               # 包内自检：库加载 + 成品 + 空编辑逐字节 + 面板 + zip（70 项）
 node tools/test-regex.mjs             # 折叠链（30 项）
-node tools/test-panel.mjs             # 面板逻辑（155 项）
-node tools/test-panelconfig.mjs       # 面板外观配置 + 分组覆盖 + 壁纸分层 + 颜色不空转（101 项）
+node tools/test-panel.mjs             # 面板逻辑（191 项）
+node tools/test-panelconfig.mjs       # 面板外观配置 + 分组覆盖 + 壁纸分层 + 颜色不空转（107 项）
 node tools/test-mobile.mjs            # 手机场景（20 项，假 DOM）
 node tools/test-iframe.mjs            # iframe 嵌套与加载时序（34 项，假 DOM）
 node tools/test-gui.mjs               # 生成器内核 M0–M6 + EJS + 搭建 + 导出前检查（353 项）
 node tools/check-browser.mjs          # 真浏览器 · 桌面视口（58 项）
 node tools/check-browser.mjs --mobile # 真浏览器 · 手机视口（58 项）
 node tools/check-gui-browser.mjs      # 真浏览器 · 生成器 GUI 十屏（235 项 + 数 DOM）
-node tools/build-gui-demo.mjs         # 生成器演示数据（Izumi + 芳乃 + 面板快照 + 假酒馆 API）
+node tools/build-gui-demo.mjs         # 编辑器用的示例素材：成品快照 + 面板两版源码 + 假酒馆 API
+                                      # （演示纸不在这里：它是 samples/标准纸.json，见 build-demo-paper.mjs）
 node tools/build-package.mjs          # 打包：dist/芳乃预设生成器/ + zip（只带芳乃预设当示例）
 ```
 
@@ -160,17 +176,18 @@ node tools/build-package.mjs          # 打包：dist/芳乃预设生成器/ + z
 node tools/build-package.mjs     # → dist/芳乃预设生成器/ 与 dist/芳乃预设生成器.zip
 ```
 
-包里是**整个编辑器 + 可编程的库 + 成品与源码 + 说明书**，示例素材**只有芳乃预设这一份**
-（Izumi 是开发环境跑测试用的第三方预设，不进包——`build-package.mjs` 会强制检查这件事，
-还会检查"index.html 引的每个文件都在包里"，因为 `file://` 下少一个文件就是白屏）。
+包里是**整个编辑器 + 可编程的库 + 成品与源码 + 说明书**，示例素材**只有成品预设这一份**
+（仓库里那份演示纸是**标准纸**，包里换成成品预设的快照——两份都是我们自己的；
+`build-package.mjs` 还会强制检查"包里没混进别人的演示数据"与"index.html 引的每个文件都在包里"，
+因为 `file://` 下少一个文件就是白屏）。
 
 包内可跑的自检（不需要第三方源预设，也不需要 Chrome）：
 
 ```bash
 node tools/selftest.mjs                                  # 70 项
-node tools/check-preset.mjs                              # 108 项
-node tools/test-panel.mjs                                # 155 项
-node tools/test-panelconfig.mjs                          # 101 项
+node tools/check-preset.mjs                              # 109 项
+node tools/test-panel.mjs                                # 191 项
+node tools/test-panelconfig.mjs                          # 107 项
 node tools/test-mobile.mjs                               # 20 项
 node tools/test-iframe.mjs                               # 34 项
 node tools/test-regex.mjs                                # 30 项
@@ -401,10 +418,10 @@ M0/M1/M2 看的、体检的、导出的，是同一条路径出来的同一份�
 （token 估算会再扣掉注入位占位块——`⟨世界书·前⟩` 那些是我们画给人看的，
 酒馆真正注入的是世界书/角色卡本身，所以 Izumi 那一份的净占用约 **3.5k token**。）
 
-体检器自身的准确性也当成测试对象：**拿成品预设当反例**——它已经过了 108 项构建校验，
+体检器自身的准确性也当成测试对象：**拿成品预设当反例**——它已经过了 109 项构建校验，
 如果体检器在它身上报"必改"，那多半是体检器误报（测试里就是这么断言的，必改为 0）。
 
-自检：`node tools/test-gui.mjs`（353 项，纯 Node）＋ `node tools/check-gui-browser.mjs`
+自检：`node tools/test-gui.mjs`（359 项，纯 Node）＋ `node tools/check-gui-browser.mjs`
 （235 项页面断言 + 逐屏数 DOM，真 Chrome，桌面/手机两个视口）。
 
 **导出前检查会盯住"面板到底进没进这个文件"**：面板是**脚本**（进 `extensions.tavern_helper.scripts`），

@@ -14,7 +14,9 @@ import crypto from 'node:crypto';
 import { need, isSynthetic, noteFixtureMode } from './lib/fixtures.mjs';
 
 /* 夹具守卫：人造小预设那部分随时可跑，但规模验证要真实样本——它是他人的预设，不入库。 */
-need('Izumi_0914.json', 'GUI 内核测试（331 项，含真实预设的规模验证）');
+/* 标准纸是**我们自己**那张（samples/标准纸.json，演示与测试共用）。
+   need() 会把实际路径还回来——夹具可能放在 samples/ 或仓库根，别自己拼路径。 */
+const PAPER = need('标准纸.json', 'GUI 内核测试（拿**标准纸** samples/标准纸.json 当样本）');
 
 const ROOT = process.cwd();
 const P = (...a) => path.join(ROOT, ...a);
@@ -186,61 +188,110 @@ console.log('\n[7] 槽位冲突 / 外部宏 / 待填条目');
     r.segments.map((s) => s.text).join('|').slice(0, 120));
 }
 
-/* ── 8. 真实预设：Izumi ────────────────────────────────────── */
-console.log('\n[8] 真实预设：Izumi_0914.json');
+/* ── 8. 标准纸：拿**我们自己的**那张纸当样本 ──────────────────────
+   这一节以前叫「真实预设：Izumi_0914.json」——它拿**别人的纸**当样本，还把别人的规模
+   （226 条 / 192 条在列表里 / 60 条开启 / 30 条正则）写成基线。纸一换这里全红，
+   而红的不是打印机坏了，是尺子错了：那正是"拿别人的纸检验打印机"。
+   现在换成 samples/标准纸.json（演示与测试共用的一张纸），并且**不再写死任何数字**：
+   基准就是纸本身，断言的主语全是打印机（解析不丢条目、列表与开关读得对、
+   正则与脚本都认得出、拼装读得动且不动原文件）。
+   至于"变量总线 / 互斥 / 标签族 / 开关型条目 / 空变量明细"这些**能力**，
+   下面 8b 用当场造的迷你样本验——那才是真在验打印机，而不是量纸有多厚。 */
+console.log('\n[8] 标准纸：samples/标准纸.json');
 {
-  const raw = fs.readFileSync(P('Izumi_0914.json'), 'utf8');
+  const raw = fs.readFileSync(PAPER, 'utf8');
   const json = JSON.parse(raw);
   const frozen = JSON.stringify(json.prompts[3]);
-  const m = PP.parsePreset(json, 'Izumi_0914.json', Buffer.byteLength(raw, 'utf8'));
-  /* 这一节的数字原本是**真实 Izumi 的规模**（226 条 / 192 条在列表里 / 60 条开启 / 30 条正则）。
-     跑合成夹具时这些数字没有意义，但**断言的意思仍然成立**——"解析不丢条目、列表与开关
-     读得对、正则与脚本都认得出"。所以这里换成按夹具本身重算基准，而不是把它放过去。
-     分辨依据是夹具顶层的 __synthFixture 标记（见 tools/make-fixture.mjs）。 */
-  const SYNTH = isSynthetic('Izumi_0914.json');
+  const m = PP.parsePreset(json, '标准纸.json', Buffer.byteLength(raw, 'utf8'));
   const listedIds = new Set((json.prompt_order?.[0]?.order ?? []).map((o) => o.identifier));
-  const expPrompts = SYNTH ? (json.prompts ?? []).length : 226;
-  const expListed = SYNTH ? (json.prompts ?? []).filter((p) => listedIds.has(p.identifier)).length : 192;
-  const expEnabled = SYNTH ? (json.prompt_order?.[0]?.order ?? []).filter((o) => o.enabled).length : 60;
-  const expRegex = SYNTH ? ((json.extensions?.regex_scripts ?? []).length) : 30;
-  const expScripts = SYNTH ? ((json.extensions?.tavern_helper?.scripts ?? []).length) : 1;
-  if (SYNTH) noteFixtureMode('[8] 真实预设一节');
+  const expPrompts = (json.prompts ?? []).length;
+  const expListed = (json.prompts ?? []).filter((p) => listedIds.has(p.identifier)).length;
+  const expEnabled = (json.prompt_order?.[0]?.order ?? []).filter((o) => o.enabled).length;
+  const expRegex = (json.extensions?.regex_scripts ?? []).length;
+  const expScripts = (json.extensions?.tavern_helper?.scripts ?? []).length;
   ok(`条目数 ${expPrompts}`, m.counts.prompts === expPrompts, String(m.counts.prompts));
   ok(`在提示词列表里的条目 ${expListed}`, m.counts.listed === expListed, String(m.counts.listed));
   ok(`初始开启 ${expEnabled}`, m.counts.enabled === expEnabled, String(m.counts.enabled));
-  ok('变量 ≥ 90', m.variables.length >= 90, String(m.variables.length));
-  ok('检出悬空变量', m.variables.some((v) => v.dangling),
-    m.variables.filter((v) => v.dangling).map((v) => v.name).join('、'));
-  ok('检出互斥候选（≥10 组）', m.variables.filter((v) => v.exclusive).length >= 10,
-    String(m.variables.filter((v) => v.exclusive).length));
-  ok('识别出 konatan 标签族', m.tagFamilies.some((f) => f.id === 'konatan'));
-  ok('识别出 tucao 标签族', m.tagFamilies.some((f) => f.id === 'tucao'));
   ok(`有内嵌脚本 ${expScripts} 个`, m.scripts.length === expScripts, String(m.scripts.length));
   ok(`有正则 ${expRegex} 条`, m.regexes.length === expRegex, String(m.regexes.length));
-  ok('给出分组建议', m.suggestions.length >= 10, String(m.suggestions.length));
   ok('没修改解析前的 json', JSON.stringify(json.prompts[3]) === frozen);
 
   const t0 = Date.now();
   const r = PA.assemble(m, { user: 'Master', char: '角色卡' });
   const ms = Date.now() - t0;
-  ok('拼装出分段', r.segments.length > 50, String(r.segments.length));
-  /* 60 条开启条目原文合计 10854 字，展开后只剩 ~5200 字：
-     因为其中 31 条是"开关型"条目，正文几乎全是 setvar，本身不产出文本。
-     这个差值本身就是有用的信息（别拿原文合计当上下文占用）。 */
-  ok('拼装出正文（> 4000 字）', r.totalChars > 4000, String(r.totalChars));
-  ok('token 估算合理（> 3000）', r.tokenEstimate > 3000, String(r.tokenEstimate));
-  const empt = r.segments.filter((s) => s.kind === 'prompt' && !s.text && !(s.note || '').includes('注入位'));
-  ok('识别出开关型条目（展开后为空，≥20 条）', empt.length >= 20, String(empt.length));
+  ok('拼装出了分段', r.segments.length > 0 && r.segments.some((s) => s.kind === 'prompt'),
+    `${r.segments.length} 段`);
+  /* 正文里带着纸上的标志性文字 → 说明条目真被拼进去了（不是"字够多"这种量纸的判据） */
+  ok('纸上的正文进了拼装结果', r.text.includes('【仅作演示，无实际作用】'));
+  ok('token 估算跟着正文走（> 0）', r.tokenEstimate > 0, String(r.tokenEstimate));
   ok('正文短于原文合计（说明确实展开了）', r.totalChars < m.counts.enabledChars, r.totalChars + '/' + m.counts.enabledChars);
-  ok('记录了变量事件', r.events.length > 50, String(r.events.length));
-  ok('空变量被汇总成一条（不是刷屏）', r.warnings.filter((w) => w.kind === '变量最终为空').length === 1,
+  ok('记录了变量事件', r.events.length > 0, String(r.events.length));
+  ok('空变量被汇总成一条（不是刷屏）', r.warnings.filter((w) => w.kind === '变量最终为空').length <= 1,
     String(r.warnings.filter((w) => w.kind === '变量最终为空').length));
-  ok('空变量明细里有几十条', r.emptyVars.length >= 20, String(r.emptyVars.length));
-  ok('空变量明细点出了写入方', r.emptyVars.every((v) => v.lastBy), '');
   ok('{{user}} 被替换', r.text.includes('Master'));
   ok('注入位占位块存在', r.segments.some((s) => (s.note || '').includes('注入位')));
   ok(`拼装在 300ms 内完成（实测 ${ms}ms）`, ms < 300);
   ok('只读：拼装不改原模型', m.counts.enabled === expEnabled, String(m.counts.enabled));
+}
+
+/* ── 8b. 变量总线 / 互斥 / 标签族 / 空变量：**当场造一份迷你样本** ─────
+   这些是**打印机的能力**，跟"纸有多大"没关系。以前它们被挂在别人的纸上
+   （"变量 ≥ 90""互斥 ≥ 10 组""空变量明细 ≥ 20 条"），纸一换就全红。
+   正解不是把纸养大，而是**自己造样本**：下面这份七条的样本是我们自己写的，
+   每条断言要什么就摆什么——验的是打印机，不欠任何人一张纸。 */
+console.log('\n[8b] 变量总线 / 互斥 / 标签族：自己造的迷你样本');
+{
+  /* 样本我们自己写：九个注入位（让它像一份真预设，否则体检会（正确地）报缺锚点）
+     + 一条初始化清空 + 两条抢同一个变量的文风（互斥候选）+ 一条叠加 + 一条吐槽标签
+     + 一条读者（读 a/b/c，再读一个没人设过的名字）。 */
+  const A9 = ['main', 'chatHistory', 'charDescription', 'charPersonality', 'worldInfoBefore',
+    'worldInfoAfter', 'personaDescription', 'scenario', 'dialogueExamples'];
+  const mini = mkPreset([
+    /* main 有正文（否则体检会（正确地）报"主提示是空的"），其余八个注入位只是占位标记 */
+    { identifier: 'main', name: 'main', content: '你是助手，按用户设定扮演角色。' },
+    ...A9.slice(1).map((id) => ({ identifier: id, name: id, content: '', marker: true })),
+    { identifier: 'init', name: '初始化', content: '{{setvar::a::}}{{setvar::b::}}{{setvar::c::}}' },
+    { identifier: 'w1', name: '文风 · 甲', content: '{{setvar::a::甲}}' },
+    { identifier: 'w2', name: '文风 · 乙', content: '{{setvar::a::乙}}' },
+    { identifier: 'acc', name: '叠加计数', content: '{{addvar::d::1}}' },
+    { identifier: 'tag', name: '吐槽', content: '<tucao>自己造的一句吐槽</tucao>' },
+    { identifier: 'use', name: '使用者', content: '当前：{{getvar::a}}｜{{getvar::b}}｜{{getvar::c}}｜{{getvar::never_set}}' },
+  ], [...A9, 'init', 'w1', 'w2', 'acc', 'tag', 'use'].map((identifier) => ({ identifier, enabled: true })));
+  const mm = PP.parsePreset(mini, 'mini.json');
+  const rr = PA.assemble(mm, { user: 'Master', char: '角色卡' });
+  const rep = PI.check(mm, rr);
+  const v = (n) => mm.variables.find((x) => x.name === n);
+
+  ok('变量就是样本里的那几个（不含别的）',
+    mm.variables.map((x) => x.name).sort().join('、') === 'a、b、c、d、never_set',
+    mm.variables.map((x) => x.name).join('、'));
+  ok('只读不设的变量被认成悬空（never_set），且只有它一个',
+    v('never_set')?.dangling === true && mm.variables.filter((x) => x.dangling).length === 1,
+    mm.variables.filter((x) => x.dangling).map((x) => x.name).join('、'));
+  ok('同一变量被两条非清空型条目设值 → 判成互斥候选（a）；只被叠加的那条不算（d）',
+    v('a')?.exclusive === true && v('d')?.exclusive === false,
+    `a=${v('a')?.exclusive} d=${v('d')?.exclusive}`);
+  ok('清空型初始化条目被认出来（clearer），它自己不参与互斥',
+    mm.entries.find((e) => e.name === '初始化')?.clearer === true && v('b')?.exclusive === false);
+  ok('识别出 tucao 标签族', mm.tagFamilies.some((f) => f.id === 'tucao'),
+    mm.tagFamilies.map((f) => f.id).join('、'));
+
+  const emptyNames = (rr.emptyVars ?? []).map((x) => x.name).sort();
+  ok('空变量明细 = 被清空、之后没人再写的那两个（b、c）', emptyNames.join('、') === 'b、c', emptyNames.join('、'));
+  ok('空变量明细点出了写入方（是谁把它置空的）',
+    (rr.emptyVars ?? []).every((x) => x.lastBy === '初始化'),
+    JSON.stringify((rr.emptyVars ?? []).map((x) => [x.name, x.lastBy])));
+  ok('展开后什么都不剩的条目被认出来：正好是样本里那 4 条', (() => {
+    const names = rr.segments.filter((s) => s.kind === 'prompt' && !s.text && !(s.note || '').includes('注入位'))
+      .map((s) => s.name);
+    return names.join('、') === '初始化、文风 · 甲、文风 · 乙、叠加计数';
+  })(), rr.segments.filter((s) => s.kind === 'prompt' && !s.text).map((s) => s.name).join('、'));
+  ok('体检不冤枉这份样本（必改项为 0）', rep.items.filter((i) => i.level === 'err').length === 0,
+    rep.items.filter((i) => i.level === 'err').map((i) => i.id).join('、'));
+  ok('体检点名了三条该提醒的：互斥同开 / 悬空变量 / 变量最终为空', (() => {
+    const ids = rep.items.map((i) => i.id);
+    return ['mutex-on', 'dangling-var', 'empty-final'].every((id) => ids.includes(id));
+  })(), rep.items.map((i) => i.id).join('、'));
 }
 
 /* ── 9. M2 体检：每条不变式都得真的会响 ────────────────────────── */
